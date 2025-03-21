@@ -1,0 +1,12 @@
+azure-ai-projects>=1.0.0b7
+azure-ai-resources>=1.0.0b9
+azure-identity>=1.21.0
+azure-mgmt-cognitiveservices>=13.6.0
+azure-mgmt-resource>=22.0.0
+azure-mgmt-search>=9.1.0
+azure-mgmt-storage>=22.1.1
+azure-search-documents>=11.5.2
+langchain>=0.3.20
+langchain-community>=0.3.19
+langchain-openai>=0.3.8
+python-dotenv>=1.0.1
