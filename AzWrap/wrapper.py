@@ -777,8 +777,7 @@ class SearchIndex:
             vector_fields = "text_vector"
         
         # Create vectorized query
-        vectorized_query = VectorizedQuery(vector=query_vector, k=50, fields=vector_fields)
-        #vectorized_query = VectorizableTextQuery(text=query, k=50, fields=vector_fields)
+        vectorized_query = VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields=vector_fields)
         
         # Default search options
         default_options = {
