@@ -137,7 +137,7 @@ class ResourceGroup:
         search_mgmt_client = SearchManagementClient(self.subscription.identity.get_credential(), 
                                                     self.subscription.subscription_id)
         # Define the search service
-        search_service = {
+        search_service: Dict[str, Any] = {
             "location": location,
             "sku": {
                 "name": "basic"  # Options: free, basic, standard, standard2, standard3, storage_optimized_l1, storage_optimized_l2
@@ -180,8 +180,8 @@ class ResourceGroup:
         cognitive_client = self.subscription.get_cognitive_client()
         cognitive_accounts = cognitive_client.accounts.list_by_resource_group(self.azure_resource_group.name)
 
-        accounts = [account for account in cognitive_accounts]
-        openai_services_names = [ account.name for account in  accounts]
+        accounts: List[azcsm.Account] = [account for account in cognitive_accounts]
+        openai_services_names: List[str] = [account.name for account in accounts]
 
         for account in accounts :
             if account.kind.lower() == "openai" and account.name.lower() == service_name.lower() :
@@ -479,8 +479,8 @@ class SearchIndex:
                 document_count = results.get_count()
                 print(f"Retrieved {document_count} documents to process")
             
-            documents_to_process = []
-            batch_documents = list(results)
+            documents_to_process: List[Dict[str, Any]] = []
+            batch_documents: List[Dict[str, Any]] = list(results)
             if not batch_documents:
                 break  # No more documents to process
             
@@ -532,6 +532,7 @@ class SearchIndex:
                 new_doc = {key: value for key, value in doc.items() if not fields_to_copy or (key in fields_to_copy) }
                 documents_to_upload.append(new_doc)            
             # Upload the batch to the target index
+            succeeded = 0
             if documents_to_upload:
                 result = target_client.upload_documents(documents=documents_to_upload)
                 
@@ -620,8 +621,8 @@ class SearchIndex:
             if 'parent_id' in chunk and 'chunk_id' in chunk:
                 parent_chunks[chunk['parent_id']].append(chunk)
         
-        all_chunks_by_parent = {}
-        chunk_position_map = {}
+        all_chunks_by_parent: Dict[str, List[Dict[str, Any]]] = {}
+        chunk_position_map: Dict[Tuple[str, str], int] = {}
         # Sort chunks within each parent document and create position maps
         for parent_id, chunks in parent_chunks.items():
             # Try to sort chunks within each parent document
@@ -698,11 +699,11 @@ class SearchIndex:
             # Create a filter to get all chunks from all parent documents in one query
             parent_filter = " or ".join([f"parent_id eq '{pid}'" for pid in parent_ids])
             
-            search_options = {
+            # Retrieve all chunks (up to a reasonable limit)
+            search_options: Dict[str, Any] = {
                 "include_total_count": True,
                 "select": "*"
             }
-            # Retrieve all chunks (up to a reasonable limit)
             all_chunks = list(self.perform_search("*", 
                                                   filter_expression=parent_filter,
                                                   top=1000,  # Adjust based on your needs
@@ -718,7 +719,7 @@ class SearchIndex:
             chunk_id = result.get('chunk_id')
             
             # Initialize empty context window
-            context_window = {
+            context_window: Dict[str, List[Dict[str, Any]]] = {
                 'before': [],
                 'after': []
             }
@@ -782,7 +783,7 @@ class SearchIndex:
         vectorized_query = VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields=vector_fields)
         
         # Default search options
-        default_options = {
+        default_options: Dict[str, Any] = {
             "search_text": query_text,  # Traditional keyword search
             "vector_queries": [vectorized_query],  # Vector search component
             "top": top,
