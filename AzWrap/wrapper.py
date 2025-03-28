@@ -174,7 +174,8 @@ class ResourceGroup:
         result = storage_client.storage_accounts.begin_create(resource_group_name=self.azure_resource_group.name, 
                                                               account_name=account_name, 
                                                               parameters=params)
-        return result.result()
+        account = result.result()
+        return StorageAccount(self, account)
 
     def get_ai_service(self, service_name:str) -> Optional["AIService"]:
         cognitive_client = self.subscription.get_cognitive_client()
@@ -297,8 +298,8 @@ class SearchService:
     
     def add_semantic_configuration(self,
                                   title_field: str = "title",
-                                  content_fields: List[str] = None,
-                                  keyword_fields: List[str] = None,
+                                  content_fields: Optional[List[str]] = None,
+                                  keyword_fields: Optional[List[str]] = None,
                                   semantic_config_name: str = "default-semantic-config") -> azsdim.SearchIndex:
         """
         Add semantic configuration to the index.
@@ -448,8 +449,8 @@ class SearchIndex:
             raise
 
     def process_data_in_batches( self, 
-                                index_name: Optional[str],
-                                transaction: Callable[[List[Dict[str, Any]]], int],
+                                index_name: Optional[str] = None,
+                                transaction: Callable[[List[Dict[str, Any]]], int] = None,
                                 search_text: str = "*",
                                 batch_size: int = 100 ) -> Tuple[int, int]:
         '''
@@ -503,7 +504,7 @@ class SearchIndex:
         print(f"Successfully processed {succeeded_count}/{document_count} documents from  index '{index_name}'")
         return (succeeded_count, document_count)
 
-    def copy_index_data( self, source_index_name: str, target_index_name: str, fields_to_copy:List[str], batch_size:int=100) -> Tuple[int, int]:
+    def copy_index_data( self, source_index_name: str, target_index_name: str, fields_to_copy: Optional[List[str]] = None, batch_size: int = 100) -> Tuple[int, int]:
         """
         Copy data from source index to target index, excluding the removed fields
         
@@ -564,7 +565,8 @@ class SearchIndex:
             
             if len(new_fields) == 0:
                 print(f"None of the specified fields exist in index '{self.index_name}'")
-                return self.index_name
+                # Return a minimal SearchIndex to match the return type
+                return azsdim.SearchIndex(name=self.index_name, fields=[])
             
             # Create a new index definition
             if hasattr(original_index, "semantic_settings"):
@@ -614,7 +616,7 @@ class SearchIndex:
         results = search_client.search(query_text, **search_options)
         return results
     
-    def get_adjacent_chunks(self, all_chunks: List[Dict]) -> Tuple[Dict[str, List[Dict]], Dict[Tuple[str, str], int]]:
+    def get_adjacent_chunks(self, all_chunks: List[Dict[str, Any]]) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[Tuple[str, str], int]]:
         # Organize chunks by parent_id
         parent_chunks = defaultdict(list)
         for chunk in all_chunks:
@@ -628,7 +630,7 @@ class SearchIndex:
             # Try to sort chunks within each parent document
             try:
                 # First try to sort by chunk_id if it contains a number
-                def extract_number(chunk):
+                def extract_number(chunk: Dict[str, Any]) -> Union[int, str]:
                     chunk_id = chunk.get('chunk_id', '')
                     # Try to extract a number from the chunk_id
                     if '_' in chunk_id:
