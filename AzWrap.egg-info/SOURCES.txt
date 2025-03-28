@@ -16,3 +16,4 @@ azwrap.egg-info/dependency_links.txt
 azwrap.egg-info/entry_points.txt
 azwrap.egg-info/requires.txt
 azwrap.egg-info/top_level.txt
+test/test.py
