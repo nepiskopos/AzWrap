@@ -27,21 +27,21 @@ class Identity:
 
     subscription_client: SubscriptionClient
 
-    def __init__(self, tenant_id, client_id, client_secret):
+    def __init__(self, tenant_id: str, client_id: str, client_secret: str):
         self.client_id = client_id
         self.client_secret = client_secret
         self.tenant_id = tenant_id
         self.credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
         self.subscription_client = SubscriptionClient(self.credential)
     
-    def get_credential(self):
+    def get_credential(self) -> ClientSecretCredential:
         return self.credential
     
-    def get_subscriptions(self) -> list[azsbm.Subscription]:
+    def get_subscriptions(self) -> List[azsbm.Subscription]:
         subscriptions = list(self.subscription_client.subscriptions.list())
         return subscriptions 
     
-    def get_subscription(self, subscription_id) -> "Subscription":
+    def get_subscription(self, subscription_id: str) -> Optional["Subscription"]:
         for sub in self.get_subscriptions():
             if sub.subscription_id == subscription_id:
                 return Subscription(self, sub, sub.subscription_id)
@@ -66,14 +66,14 @@ class Subscription:
         self.resource_client = ResourceManagementClient(self.identity.get_credential(), self.subscription_id)
         self.storage_client = StorageManagementClient(self.identity.get_credential(), self.subscription_id)
 
-    def get_resource_group(self, group_name: str) -> "ResourceGroup":
+    def get_resource_group(self, group_name: str) -> Optional["ResourceGroup"]:
         groups = self.resource_client.resource_groups.list()
         for group in groups:
             if group.name.lower() == group_name.lower():
                 return ResourceGroup(self, group)
         return None
     
-    def create_resource_group(self, group_name: str, location: str) -> "ResourceGroup":
+    def create_resource_group(self, group_name: str, location: str) -> Optional["ResourceGroup"]:
         result = self.resource_client.resource_groups.create_or_update(
             group_name,
             {"location": location}
@@ -82,13 +82,13 @@ class Subscription:
             return ResourceGroup(self, result)
         return None
     
-    def get_search_sevices(self) -> list[azsrm.SearchService]:
+    def get_search_services(self) -> List[azsrm.SearchService]:
         search_mgmt_client = SearchManagementClient(self.identity.get_credential(), self.subscription_id)
         services = list(search_mgmt_client.services.list_by_subscription())
         return services 
     
-    def get_search_service(self, service_name: str) -> "SearchService":
-        services = self.get_search_sevices()
+    def get_search_service(self, service_name: str) -> Optional["SearchService"]:
+        services = self.get_search_services()
         for service in services:
             if service.name == service_name:
                 resource_group_name = service.id.split("/")[4] 
@@ -101,7 +101,7 @@ class Subscription:
             self.storage_client = StorageManagementClient(self.identity.get_credential(), self.subscription_id) 
         return self.storage_client
     
-    def get_storage_accounts(self) -> list[azstm.StorageAccount]:
+    def get_storage_accounts(self) -> List[azstm.StorageAccount]:
         accounts = list(self.storage_client.storage_accounts.list())
         return accounts
     
@@ -119,14 +119,14 @@ class ResourceGroup:
     azure_resource_group: azrm.ResourceGroup
     subscription: Subscription
 
-    def __init__(self, subscription: Subscription, azure_resource_group ):
+    def __init__(self, subscription: Subscription, azure_resource_group: azrm.ResourceGroup):
         self.subscription = subscription
         self.azure_resource_group = azure_resource_group
 
     def get_name(self) -> str:
         return self.azure_resource_group.name
 
-    def get_resources(self) -> list[azrm.GenericResource]:
+    def get_resources(self) -> List[azrm.GenericResource]:
         resources = self.subscription.resource_client.resources.list_by_resource_group(self.azure_resource_group.name)
         return resources
     
@@ -151,7 +151,7 @@ class ResourceGroup:
         search_service = operation.result()
         return SearchService(self, search_service)
     
-    def get_storage_account(self, account_name: str) -> "StorageAccount":
+    def get_storage_account(self, account_name: str) -> Optional["StorageAccount"]:
         storage_client = self.subscription.get_storage_management_client()
         try:
             account = storage_client.storage_accounts.get_properties(resource_group_name = self.azure_resource_group.name, 
@@ -164,7 +164,7 @@ class ResourceGroup:
         else:
             return None
 
-    def create_storage_account(self, account_name: str, location: str) -> azstm.StorageAccount:
+    def create_storage_account(self, account_name: str, location: str) -> "StorageAccount":
         storage_client = self.subscription.get_storage_management_client()
         params = azstm.StorageAccountCreateParameters(
             sku=azstm.Sku(name="Standard_LRS"), 
@@ -176,7 +176,7 @@ class ResourceGroup:
                                                               parameters=params)
         return result.result()
 
-    def get_ai_service(self, service_name:str) -> "AIService":
+    def get_ai_service(self, service_name:str) -> Optional["AIService"]:
         cognitive_client = self.subscription.get_cognitive_client()
         cognitive_accounts = cognitive_client.accounts.list_by_resource_group(self.azure_resource_group.name)
 
@@ -212,11 +212,12 @@ class StorageAccount:
     def get_blob_service_client(self) -> BlobServiceClient:
         return BlobServiceClient.from_connection_string(self.connection_string_description) 
     
-    def get_container_client(self, container_name: str):
+    def get_container_client(self, container_name: str) -> ContainerClient:
         client = self.get_blob_service_client()
         container_client = client.get_container_client(container_name)
+        return container_client
 
-    def get_containers(self) -> list[ContainerProperties]:
+    def get_containers(self) -> List[ContainerProperties]:
         client = self.get_blob_service_client()
         containers = client.list_containers()
         return [container for container in containers]
@@ -233,11 +234,11 @@ class Container:
         self.storage_account = storage_account
         self.container_client = container_client
 
-    def get_blob_names(self) -> list[str]:
+    def get_blob_names(self) -> List[str]:
         blobs = self.container_client.list_blob_names()
         return [blob for blob in blobs]
     
-    def get_blobs(self) -> list[BlobProperties]:
+    def get_blobs(self) -> List[BlobProperties]:
         blobs = self.container_client.list_blobs()
         return [blob for blob in blobs]
 
@@ -250,14 +251,15 @@ class SearchService:
     index_client: azsdi.SearchIndexClient
     search_client: azsd.SearchClient
     openai_client: Any
+    index_name: str
 
     def __init__(self, resource_group: ResourceGroup, search_service: azsrm.SearchService):
         self.resource_group = resource_group
         self.search_service = search_service
-        self.index_client = None
-        self.search_client = None
-        self.openai_client = None
-        self.index_name = os.getenv("INDEX_NAME", "default-index")
+        self.index_client: Optional[azsdi.SearchIndexClient] = None
+        self.search_client: Optional[azsd.SearchClient] = None
+        self.openai_client: Optional[Any] = None
+        self.index_name: str = os.getenv("INDEX_NAME", "default-index")
     
     def get_admin_key(self) -> str:
         search_mgmt_client = SearchManagementClient(self.resource_group.subscription.identity.get_credential(),
@@ -283,21 +285,21 @@ class SearchService:
         indexes = list(index_client.list_indexes())
         return indexes
 
-    def get_index(self, index_name: str) -> "SearchIndex":
+    def get_index(self, index_name: str) -> Optional["SearchIndex"]:
         index_client = self.get_index_client()
         index = index_client.get_index(index_name)
         if index and index.name == index_name:
             return SearchIndex(self, index.name, index.fields, index.vector_search)
         return None
       
-    def create_or_update_index(self, index_name: str, fields: List[azsdim.SearchField])->"SearchIndex":
-        return SearchIndex(self, index_name, fields)
+    def create_or_update_index(self, index_name: str, fields: List[azsdim.SearchField], vector_search: Optional[azsdim.VectorSearch] = None) -> "SearchIndex":
+        return SearchIndex(self, index_name, fields, vector_search)
     
     def add_semantic_configuration(self,
                                   title_field: str = "title",
                                   content_fields: List[str] = None,
                                   keyword_fields: List[str] = None,
-                                  semantic_config_name: str = "default-semantic-config"):
+                                  semantic_config_name: str = "default-semantic-config") -> azsdim.SearchIndex:
         """
         Add semantic configuration to the index.
         
@@ -388,7 +390,7 @@ class SearchIndex:
     search_service: SearchService
     azure_index: azsdim.SearchIndex
 
-    def __init__(self, search_service: SearchService, index_name: str, fields: List[azsdim.SearchField], vector_search: azsdim.VectorSearch):
+    def __init__(self, search_service: SearchService, index_name: str, fields: List[azsdim.SearchField], vector_search: Optional[azsdim.VectorSearch] = None):
         self.search_service = search_service
         self.index_name = index_name
         self.fields = fields
@@ -410,7 +412,7 @@ class SearchIndex:
             )
         return search_client  
 
-    def extend_index_schema( self, new_fields: List[azsdim.SearchField] ) -> bool | None :
+    def extend_index_schema( self, new_fields: List[azsdim.SearchField] ) -> Optional[bool]:
         """
         Extend an Azure AI Search index schema with new fields
         
@@ -435,7 +437,7 @@ class SearchIndex:
             self.azure_index.fields.extend(fields_to_add)
             
             index_client: azsdi.SearchIndexClient = self.search_service.get_index_client()
-            result : bool | None = index_client.create_or_update_index(self.azure_index)
+            result: Optional[bool] = index_client.create_or_update_index(self.azure_index)
             print(f"Successfully extended index '{self.index_name}' with {len(fields_to_add)} new fields")
             
             # Return the updated index
@@ -446,7 +448,7 @@ class SearchIndex:
             raise
 
     def process_data_in_batches( self, 
-                                index_name: str,
+                                index_name: Optional[str],
                                 transaction: Callable[[List[Dict[str, Any]]], int],
                                 search_text: str = "*",
                                 batch_size: int = 100 ) -> Tuple[int, int]:
@@ -540,16 +542,16 @@ class SearchIndex:
         result = self.process_data_in_batches(index_name = source_index_name, transaction=copy_and_upload_documents)
         return result
 
-    def copy_index_structure( self, fields_to_copy:List[str]=None, new_index_name=None ) -> azsdim.SearchIndex:
+    def copy_index_structure( self, fields_to_copy: Optional[List[str]] = None, new_index_name: Optional[str] = None ) -> azsdim.SearchIndex:
         """
         Make a copy of an Azure AI Search index with a subset of fields.
         
         Args:
-            fields_to_remove: List of field names to copy/replicate. if None, all fields are copied.
+            fields_to_copy: List of field names to copy/replicate. If None, all fields are copied.
             new_index_name: Name for the new index (defaults to original_index_name + "_new")
         
         Returns:
-            str: Name of the new index
+            azsdim.SearchIndex: The created search index
         """
 
         try:
@@ -594,8 +596,8 @@ class SearchIndex:
             print(f"Error copying index structure: {str(e)}")
             raise
 
-    def perform_search(self, fields_to_select:str="*", highlight_fields:str="chunk", filter_expression:str=None, top:int=10,
-                       query_text:str=None, search_options:Dict[str, Any]=None) -> azsd.SearchItemPaged[Dict]:
+    def perform_search(self, fields_to_select:str="*", highlight_fields:str="chunk", filter_expression:Optional[str]=None, top:int=10,
+                       query_text:Optional[str]=None, search_options:Optional[Dict[str, Any]]=None) -> azsd.SearchItemPaged[Dict[str, Any]]:
         search_options = {
             "include_total_count": True,
             "select": fields_to_select,
@@ -611,7 +613,7 @@ class SearchIndex:
         results = search_client.search(query_text, **search_options)
         return results
     
-    def get_adjacent_chunks(self, all_chunks: List[Dict]) -> List[Dict]:
+    def get_adjacent_chunks(self, all_chunks: List[Dict]) -> Tuple[Dict[str, List[Dict]], Dict[Tuple[str, str], int]]:
         # Organize chunks by parent_id
         parent_chunks = defaultdict(list)
         for chunk in all_chunks:
@@ -653,12 +655,12 @@ class SearchIndex:
     def search_with_context_window(self,
                              query_text: str,
                              query_vector: List[float],
-                             vector_fields: str = None,
-                             search_options: Dict[str, Any] = None,
+                             vector_fields: Optional[str] = None,
+                             search_options: Optional[Dict[str, Any]] = None,
                              use_semantic_search: bool = False,
                              semantic_config_name: str = "default-semantic-config",
                              top: int = 10,
-                             window_size=3):
+                             window_size: int = 3) -> List[Dict[str, Any]]:
         """
         Perform a search and retrieve a window of context chunks around each result.
         
@@ -756,8 +758,8 @@ class SearchIndex:
     def perform_hybrid_search(self,
                              query_text: str,
                              query_vector: List[float],
-                             vector_fields: str = None,
-                             search_options: Dict[str, Any] = None,
+                             vector_fields: Optional[str] = None,
+                             search_options: Optional[Dict[str, Any]] = None,
                              use_semantic_search: bool = False,
                              top: int = 10,
                              semantic_config_name: str = "default-semantic-config") -> List[Dict[str, Any]]:
@@ -845,7 +847,7 @@ class AIService:
         return models 
 
     @staticmethod
-    def get_model_details(model: azcsm.Model) -> Dict:
+    def get_model_details(model: azcsm.Model) -> Dict[str, Any]:
         """
         Get details for a specific model.
         
@@ -883,7 +885,7 @@ class AIService:
             return deployment
 
     @staticmethod        
-    def get_deployment_details(deployment: azcsm.Deployment) -> Dict:
+    def get_deployment_details(deployment: azcsm.Deployment) -> Dict[str, Any]:
         """
         Get details for a specific deployment.
         
@@ -930,7 +932,7 @@ class AIService:
                          model_name: str, 
                          model_version:str = None,
                          sku_name: str = "Standard",
-                         capacity: int = 1) -> azcsm.Deployment:
+                         capacity: int = 1) -> Union[azcsm.Deployment, Dict[str, str]]:
         """
         Create a new model deployment in Azure OpenAI.
         
@@ -969,7 +971,7 @@ class AIService:
                 account_name=self.azure_account.name,
                 deployment_name=deployment_name,
                 deployment=None, 
-                parameteres = { 
+                parameters = { 
                     "properties": deployment_properties,
                     "sku": sku
                 }
@@ -1011,7 +1013,7 @@ class AIService:
     def update_deployment(self, 
                          deployment_name: str, 
                          sku_name: str = "Standard",
-                         capacity: int = 1) -> azcsm.Deployment:
+                         capacity: int = 1) -> Union[azcsm.Deployment, Dict[str, str]]:
         """
         Update an existing model deployment in Azure OpenAI.
         
