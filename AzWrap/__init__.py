@@ -15,6 +15,8 @@ from .wrapper import (
     # Storage
     StorageAccount,
     Container,
+
+    BlobType,
     
     # Search
     SearchService, 
@@ -36,6 +38,8 @@ __all__ = [
     # Storage
     "StorageAccount",
     "Container",
+
+    "BlobType",
     
     # Search Services
     "SearchService",

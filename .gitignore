@@ -5,3 +5,6 @@ dist/**
 **/__pycache__/**
 AzWrap.egg-info/**
 **/logs/**
+**/remove_*
+working_docs/**
+test/graph_processor1.py

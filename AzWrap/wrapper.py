@@ -4,8 +4,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from collections import defaultdict
+from enum import Enum
 from time import time 
-from typing import Any, Callable, List, Dict, Optional, Tuple, Union
+from typing import Any, Callable, List, Dict, Optional, Tuple, Union, ClassVar
 
 from azure.identity import ClientSecretCredential
 from azure.core.credentials import AccessToken
@@ -233,10 +234,176 @@ class StorageAccount:
             raise ValueError(f"Container with name {container_name} not found.")
         return Container(self, container)
     
+
+class BlobType(Enum):
+    """
+    Enumeration of common MIME types for blobs in Azure Storage
+    """
+    # Text formats
+    TEXT_PLAIN = "text/plain"
+    TEXT_CSV = "text/csv"
+    TEXT_HTML = "text/html"
+    TEXT_CSS = "text/css"
+    TEXT_JAVASCRIPT = "text/javascript"
+    TEXT_XML = "text/xml"
+    TEXT_MARKDOWN = "text/markdown"
     
+    # Application formats
+    APP_JSON = "application/json"
+    APP_XML = "application/xml"
+    APP_PDF = "application/pdf"
+    APP_ZIP = "application/zip"
+    APP_GZIP = "application/gzip"
+    APP_OCTET_STREAM = "application/octet-stream"
+    
+    # Microsoft Office formats
+    MS_WORD = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    MS_EXCEL = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    MS_POWERPOINT = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    
+    # Image formats
+    IMAGE_JPEG = "image/jpeg"
+    IMAGE_PNG = "image/png"
+    IMAGE_GIF = "image/gif"
+    IMAGE_SVG = "image/svg+xml"
+    IMAGE_WEBP = "image/webp"
+    IMAGE_TIFF = "image/tiff"
+    
+    # Audio formats
+    AUDIO_MP3 = "audio/mpeg"
+    AUDIO_WAV = "audio/wav"
+    AUDIO_OGG = "audio/ogg"
+    
+    # Video formats
+    VIDEO_MP4 = "video/mp4"
+    VIDEO_WEBM = "video/webm"
+    VIDEO_OGG = "video/ogg"
+    
+    
+
+    # Common file extensions to MIME type mapping
+    @classmethod
+    def from_extension(cls, extension: str) -> Optional["BlobType"]:
+        """
+        Get MIME type from file extension
+        
+        Args:
+            extension: The file extension (with or without leading dot)
+        
+        Returns:
+            BlobType enum value or None if unknown extension
+        """
+        if not extension.startswith('.'):
+            extension = '.' + extension
+            
+        extension = extension.lower()
+        
+        ext_map = {
+            '.txt': cls.TEXT_PLAIN,
+            '.csv': cls.TEXT_CSV,
+            '.html': cls.TEXT_HTML,
+            '.htm': cls.TEXT_HTML,
+            '.css': cls.TEXT_CSS,
+            '.js': cls.TEXT_JAVASCRIPT,
+            '.xml': cls.TEXT_XML,
+            '.md': cls.TEXT_MARKDOWN,
+            '.json': cls.APP_JSON,
+            '.pdf': cls.APP_PDF,
+            '.zip': cls.APP_ZIP,
+            '.gz': cls.APP_GZIP,
+            '.docx': cls.MS_WORD,
+            '.xlsx': cls.MS_EXCEL,
+            '.pptx': cls.MS_POWERPOINT,
+            '.jpg': cls.IMAGE_JPEG,
+            '.jpeg': cls.IMAGE_JPEG,
+            '.png': cls.IMAGE_PNG,
+            '.gif': cls.IMAGE_GIF,
+            '.svg': cls.IMAGE_SVG,
+            '.webp': cls.IMAGE_WEBP,
+            '.tif': cls.IMAGE_TIFF,
+            '.tiff': cls.IMAGE_TIFF,
+            '.mp3': cls.AUDIO_MP3,
+            '.wav': cls.AUDIO_WAV,
+            '.ogg': cls.AUDIO_OGG,
+            '.mp4': cls.VIDEO_MP4,
+            '.webm': cls.VIDEO_WEBM,
+            '.bin': cls.APP_OCTET_STREAM
+        }
+        
+        return ext_map.get(extension)
+        
+    @classmethod
+    def from_mime_type(cls, mime_type: str) -> Optional["BlobType"]:
+        """
+        Get BlobType from MIME type string
+        
+        Args:
+            mime_type: The MIME type string (e.g., 'text/plain', 'application/pdf')
+        
+        Returns:
+            BlobType enum value or None if unknown MIME type
+        """
+        if not mime_type:
+            return None
+            
+        mime_type = mime_type.lower()
+        
+        # Try to find a direct match with enum values
+        for blob_type in cls:
+            if blob_type.value.lower() == mime_type:
+                return blob_type
+                
+        # Handle special cases and aliases
+        mime_map = {
+            # Text types with charset parameters
+            'text/plain; charset=utf-8': cls.TEXT_PLAIN,
+            'text/csv; charset=utf-8': cls.TEXT_CSV,
+            'text/html; charset=utf-8': cls.TEXT_HTML,
+            
+            # Common aliases
+            'application/javascript': cls.TEXT_JAVASCRIPT,
+            'application/xhtml+xml': cls.TEXT_HTML,
+            'text/xml; charset=utf-8': cls.TEXT_XML,
+            'application/text': cls.TEXT_PLAIN,
+            'text': cls.TEXT_PLAIN,
+            
+            # Office document types (both with and without parameters)
+            'application/msword': cls.MS_WORD,
+            'application/vnd.ms-word': cls.MS_WORD,
+            'application/vnd.ms-excel': cls.MS_EXCEL,
+            'application/excel': cls.MS_EXCEL,
+            'application/vnd.ms-powerpoint': cls.MS_POWERPOINT,
+            'application/powerpoint': cls.MS_POWERPOINT,
+            
+            # Image types
+            'image/jpg': cls.IMAGE_JPEG,  # Common misspelling
+            
+            # Document types
+            'application/x-pdf': cls.APP_PDF,
+            
+            # Archives
+            'application/x-zip-compressed': cls.APP_ZIP,
+            'application/x-gzip': cls.APP_GZIP
+        }
+        
+        # Check the map for exact matches
+        if mime_type in mime_map:
+            return mime_map[mime_type]
+            
+        # Try to match just the main part before any parameters
+        base_mime = mime_type.split(';')[0].strip()
+        for blob_type in cls:
+            if blob_type.value.lower() == base_mime:
+                return blob_type
+                
+        # No match found
+        return None
+
 class Container:
     container_client: ContainerClient
     storage_account: StorageAccount
+    # Reference to the BlobType enum for easier access
+    BlobType: ClassVar[Enum] = BlobType
 
     def __init__(self, storage_account: StorageAccount, container_client: ContainerClient):
         self.storage_account = storage_account
@@ -249,6 +416,229 @@ class Container:
     def get_blobs(self) -> List[BlobProperties]:
         blobs = self.container_client.list_blobs()
         return [blob for blob in blobs]
+        
+    def get_blob_content(self, blob_name: str) -> bytes:
+        """
+        Get the content of a specific blob using its BlobProperties
+        
+        Args:
+            blob_properties: BlobProperties object for the blob to retrieve
+            
+        Returns:
+            bytes: The content of the blob
+            
+        Raises:
+            ValueError: If the blob cannot be found or accessed
+        """
+        try:
+            # Get the blob client for the specific blob
+            blob_client = self.container_client.get_blob_client(blob_name)
+            
+            # Download the blob content
+            download_stream = blob_client.download_blob()
+            content = download_stream.readall()
+            
+            return content
+        except Exception as e:
+            raise ValueError(f"Error retrieving content for {blob_name = }: {str(e)}")
+    
+    def get_blob_content_by_properties(self, blob_properties: BlobProperties) -> bytes:
+        """
+        Get the content of a specific blob using its BlobProperties
+        
+        Args:
+            blob_properties: BlobProperties object for the blob to retrieve
+            
+        Returns:
+            bytes: The content of the blob
+            
+        Raises:
+            ValueError: If the blob cannot be found or accessed
+        """
+        return self.get_blob_content(blob_properties.name)
+        
+    def delete_blob(self, blob_name: str) -> bool:
+        """
+        Delete a blob from the container by its name
+        
+        Args:
+            blob_name: Name of the blob to delete
+            
+        Returns:
+            bool: True if the blob was successfully deleted, False otherwise
+            
+        Raises:
+            ValueError: If there's an error deleting the blob
+        """
+        try:
+            # Get the blob client for the specific blob
+            blob_client = self.container_client.get_blob_client(blob_name)
+            
+            # Delete the blob
+            blob_client.delete_blob()
+            
+            return True
+        except Exception as e:
+            raise ValueError(f"Error deleting blob {blob_name}: {str(e)}")
+            
+    def find_blobs_by_filename(self, filename: str, case_sensitive: bool = False) -> List[BlobProperties]:
+        """
+        Find all blobs that match a particular filename, regardless of path
+        
+        Args:
+            filename: The filename to search for (without path)
+            case_sensitive: Whether the search should be case-sensitive
+            
+        Returns:
+            List[BlobProperties]: List of BlobProperties objects for matching blobs
+            
+        Examples:
+            # Find all files named 'data.csv' in any folder
+            data_files = container.find_blobs_by_filename('data.csv')
+            
+            # Find all JSON files
+            json_files = container.find_blobs_by_filename('.json', case_sensitive=False)
+        """
+        try:
+            # Get all blobs in the container
+            all_blobs = self.container_client.list_blobs()
+            
+            # Filter blobs by filename
+            matching_blobs = []
+            
+            for blob in all_blobs:
+                # Extract just the filename part (after the last '/')
+                blob_full_name = blob.name
+                blob_filename = blob_full_name.split('/')[-1]
+                
+                # Check if the filename matches
+                if case_sensitive:
+                    if filename in blob_filename:
+                        matching_blobs.append(blob)
+                else:
+                    if filename.lower() in blob_filename.lower():
+                        matching_blobs.append(blob)
+            
+            return matching_blobs
+        except Exception as e:
+            raise ValueError(f"Error searching for blobs with filename '{filename}': {str(e)}")
+                       
+    def get_blob_type_from_properties(self, properties: BlobProperties) -> Optional[BlobType]:
+        """
+        Detect the MIME type of a blob based on its properties
+        
+        Args:
+            properties: BlobProperties object to analyze
+            
+        Returns:
+            BlobType: The detected MIME type or None if cannot be determined
+        """
+        # First try from content type
+        if properties and properties.content_settings and properties.content_settings.content_type:
+            content_type = properties.content_settings.content_type
+            blob_type = BlobType.from_mime_type(content_type)
+            if blob_type:
+                return blob_type
+                
+        # Fall back to extension-based detection using the blob name
+        if properties and properties.name and '.' in properties.name:
+            extension = properties.name.split('.')[-1]
+            return BlobType.from_extension(extension)
+            
+        return None
+            
+    def get_blob_type(self, blob_name: str) -> Optional[BlobType]:
+        """
+        Detect the MIME type of a blob based on its content type and/or extension
+        
+        Args:
+            blob_name: Name of the blob to analyze
+            
+        Returns:
+            BlobType: The detected MIME type or None if cannot be determined
+        """
+        try:
+            # First try to get the content type from blob properties
+            blob_client = self.container_client.get_blob_client(blob_name)
+            properties = blob_client.get_blob_properties()
+            return self.get_blob_type_from_properties(properties)
+        except Exception:
+            # If we can't get properties, fall back to extension-based detection
+            pass
+            
+        # Fall back to extension-based detection
+        if '.' not in blob_name:
+            return None
+            
+        extension = blob_name.split('.')[-1]
+        return BlobType.from_extension(extension)
+        
+    def process_blob_by_type(self, blob_name: str) -> Any:
+        """
+        Process a blob based on its detected type
+        
+        Args:
+            blob_name: Name of the blob to process
+            
+        Returns:
+            The processed content in the appropriate format for the detected type
+            
+        Raises:
+            ValueError: If the blob cannot be processed
+            ImportError: If a required package is not installed
+        """
+        blob_type = self.get_blob_type(blob_name)
+        
+        if blob_type is None:
+            # Default to binary content if type cannot be determined
+            return self.get_blob_content(blob_name)
+            
+        # Process based on MIME type
+        try:
+            if blob_type in [BlobType.TEXT_PLAIN, BlobType.TEXT_CSV, BlobType.TEXT_HTML, 
+                            BlobType.TEXT_CSS, BlobType.TEXT_JAVASCRIPT, BlobType.TEXT_XML, 
+                            BlobType.TEXT_MARKDOWN, BlobType.APP_JSON, BlobType.APP_XML]:
+                # Text-based formats
+                return self.get_text_content(blob_name)
+                
+            elif blob_type == BlobType.MS_WORD:
+                # Word documents
+                return self.get_docx_content(blob_name)
+                
+            elif blob_type == BlobType.APP_PDF:
+                # PDF documents
+                try:
+                    import PyPDF2
+                    content_bytes = self.get_blob_content(blob_name)
+                    from io import BytesIO
+                    pdf_file = BytesIO(content_bytes)
+                    pdf_reader = PyPDF2.PdfFileReader(pdf_file)
+                    
+                    text = ""
+                    for page_num in range(pdf_reader.numPages):
+                        text += pdf_reader.getPage(page_num).extractText()
+                    
+                    return text
+                except ImportError:
+                    raise ImportError("The PyPDF2 package is required to read PDF files. Install it with 'pip install PyPDF2'")
+                    
+            elif blob_type == BlobType.MS_EXCEL:
+                # Excel documents
+                try:
+                    import pandas as pd
+                    content_bytes = self.get_blob_content(blob_name)
+                    from io import BytesIO
+                    excel_file = BytesIO(content_bytes)
+                    return pd.read_excel(excel_file)
+                except ImportError:
+                    raise ImportError("The pandas package is required to read Excel files. Install it with 'pip install pandas openpyxl'")
+                    
+            else:
+                # Binary content for all other types
+                return self.get_blob_content(blob_name)
+                
+        except Exception as e:
+            raise ValueError(f"Error processing blob {blob_name} as {blob_type.name}: {str(e)}")
 
     def get_folder_structure(self) -> Dict[str, List[str]]:
         """
