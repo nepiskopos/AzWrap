@@ -1,4 +1,5 @@
 import logging
+import os
 from config import (
     LOG_FILE,
     LOG_FORMAT,
@@ -37,6 +38,11 @@ def log(level: int, message: str):
 formatter = logging.Formatter(LOG_FORMAT)
 
 # File handler
+# Ensure the directory for the log file exists
+log_dir = os.path.dirname(LOG_FILE)
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
 file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)

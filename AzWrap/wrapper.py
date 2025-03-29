@@ -159,15 +159,13 @@ class ResourceGroup:
     def get_storage_account(self, account_name: str) -> Optional["StorageAccount"]:
         storage_client = self.subscription.get_storage_management_client()
         try:
-            account = storage_client.storage_accounts.get_properties(resource_group_name = self.azure_resource_group.name, 
-                                                                account_name = account_name)
+            account = storage_client.storage_accounts.get_properties(resource_group_name = self.azure_resource_group.name, account_name = account_name)
         except Exception as e:
-            print(f"Error at ResourceGroup.get_storage_account(): {str(e)}")
-            account = None
-        if account is not None:
-            return StorageAccount(self, account)
-        else:
-            return None
+            print(f"Error at ResourceGroup.get_storage_account({account_name = }): {str(e)}")
+            raise e
+        if account is None:
+            raise ValueError(f"Storage account with name {account_name} not found.")
+        return StorageAccount(self, account)
 
     def create_storage_account(self, account_name: str, location: str) -> "StorageAccount":
         storage_client = self.subscription.get_storage_management_client()
@@ -231,7 +229,11 @@ class StorageAccount:
     def get_container(self, container_name:str) -> "Container":
         client = self.get_blob_service_client()
         container = client.get_container_client(container_name)
+        if container is None:
+            raise ValueError(f"Container with name {container_name} not found.")
         return Container(self, container)
+    
+    
 class Container:
     container_client: ContainerClient
     storage_account: StorageAccount
@@ -247,6 +249,46 @@ class Container:
     def get_blobs(self) -> List[BlobProperties]:
         blobs = self.container_client.list_blobs()
         return [blob for blob in blobs]
+
+    def get_folder_structure(self) -> Dict[str, List[str]]:
+        """
+        Get the folder structure and files in a container
+        
+        Args:
+            container: The blob container
+            
+        Returns:
+            Dict[str, List[str]]: Dictionary with folders as keys and lists of files as values
+        """
+        blobs: List[BlobProperties] = self.container_client.list_blobs()
+        
+        # Dictionary to store folder structure
+        folder_structure = {}
+        
+        for blob in blobs:
+            # Get the blob name
+            blob_name = blob.name
+            
+            # Determine the folder
+            if '/' in blob_name:
+                folder_path = '/'.join(blob_name.split('/')[:-1])
+                file_name = blob_name.split('/')[-1]
+                
+                # Add folder to dictionary if it doesn't exist
+                if folder_path not in folder_structure:
+                    folder_structure[folder_path] = []
+                
+                # Add file to folder
+                folder_structure[folder_path].append(file_name)
+            else:
+                # Files in the root directory
+                if 'root' not in folder_structure:
+                    folder_structure['root'] = []
+                
+                folder_structure['root'].append(blob_name)
+        
+        return folder_structure
+
 
 import azure.search.documents.indexes as azsdi
 import azure.search.documents.indexes.models as azsdim
