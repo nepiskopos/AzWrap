@@ -17,3 +17,4 @@ azwrap.egg-info/entry_points.txt
 azwrap.egg-info/requires.txt
 azwrap.egg-info/top_level.txt
 test/test.py
+test/test_identity.py

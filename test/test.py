@@ -1,7 +1,13 @@
 from azwrap import (
     Identity,
+    Subscription,
+    ResourceGroup,
+    SearchService,
+    SearchIndex,
     AIService,
+    OpenAIClient
 )
+from azure.core.exceptions import ClientAuthenticationError
 
 from config import(
     AZURE_TENANT_ID,
@@ -20,14 +26,63 @@ from config import(
     AZURE_OPENAI_ENDPOINT,
     AZURE_OPENAI_API_VERSION,
 )
-def get_cognitive_sevices(): 
-    identity = Identity(AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)
-    subscription = identity.get_subscription(subscription_id=AZURE_SUBSCRIPTION_ID)
-    cognitive_services = subscription.get_cognitive_client()
-    resource_group = subscription.get_resource_group(AZURE_RESOURCE_GROUP)
-    aiservice = resource_group.get_ai_service(AZURE_OPENAI_SERVICE_NAME)
 
-    openaiclient = aiservice.get_OpenAIClient(AZURE_OPENAI_API_VERSION)
+def get_identity() -> Identity:
+    identity:Identity = Identity(AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)
+    print(f"{identity is not None = }")
+    
+    try :
+        failed_attempt = Identity(AZURE_TENANT_ID, AZURE_CLIENT_ID, "mitsos")
+        raise Exception("This should not be reached")
+    except ClientAuthenticationError as e:
+        pass
+    return identity
+
+def get_subscription() -> Subscription:
+    identity:Identity = get_identity()
+    subscription:Subscription = identity.get_subscription(subscription_id=AZURE_SUBSCRIPTION_ID)
+    print(f"{subscription is not None = }")
+    try :
+        failed_attempt = identity.get_subscription(subscription_id="mitsos")
+        raise Exception("This should not be reached")
+    except ValueError as e:
+        pass
+    return subscription
+
+def get_resource_group() -> ResourceGroup:
+    subscription:Subscription = get_subscription()
+    resource_group:ResourceGroup = subscription.get_resource_group(AZURE_RESOURCE_GROUP)
+    print(f"{resource_group is not None = }")
+    return resource_group
+
+def get_search_service() -> SearchService:
+    subscription:Subscription = get_subscription()
+    resource_group:ResourceGroup = subscription.get_resource_group(AZURE_RESOURCE_GROUP)
+    search_service:SearchService = subscription.get_search_service(AZURE_SEARCH_SERVICE_NAME)
+    print(f"{search_service is not None = }")
+    return search_service
+
+def get_index() -> SearchIndex: 
+    search_service:SearchService = get_search_service()
+    index:SearchIndex = search_service.get_index(AZURE_INDEX_NAME)
+    print(f"{index is not None = }")
+    return index
+
+def get_index_copy() -> SearchIndex:
+    search_service:SearchService = get_search_service()
+    index:SearchIndex = search_service.get_index(AZURE_INDEX_NAME + "_2")
+    print(f"{index is not None = }")
+    return index
+
+def get_cognitive_sevices(): 
+    subscription:Subscription = get_subscription()
+    print(f"{subscription is not None = }")
+
+    cognitive_services = subscription.get_cognitive_client()
+    resource_group:ResourceGroup = subscription.get_resource_group(AZURE_RESOURCE_GROUP)
+    aiservice:AIService = resource_group.get_ai_service(AZURE_OPENAI_SERVICE_NAME)
+
+    openaiclient:OpenAIClient = aiservice.get_OpenAIClient(AZURE_OPENAI_API_VERSION)
     embeddings = openaiclient.generate_embeddings("Hello, how are you?")
     
     models = aiservice.get_models()

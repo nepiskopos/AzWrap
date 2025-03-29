@@ -8,6 +8,7 @@ from time import time
 from typing import Any, Callable, List, Dict, Optional, Tuple, Union
 
 from azure.identity import ClientSecretCredential
+from azure.core.credentials import AccessToken
 from azure.mgmt.resource import SubscriptionClient, ResourceManagementClient
 from azure.mgmt.storage import StorageManagementClient
 import azure.mgmt.storage.models as azstm
@@ -32,6 +33,10 @@ class Identity:
         self.client_secret = client_secret
         self.tenant_id = tenant_id
         self.credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+        #get token to validate credentials
+        token:AccessToken = self.credential.get_token("https://management.azure.com/.default")
+        if token is None:
+            raise ValueError("Failed to get token. Check your credentials.")
         self.subscription_client = SubscriptionClient(self.credential)
     
     def get_credential(self) -> ClientSecretCredential:
@@ -41,11 +46,11 @@ class Identity:
         subscriptions = list(self.subscription_client.subscriptions.list())
         return subscriptions 
     
-    def get_subscription(self, subscription_id: str) -> Optional["Subscription"]:
+    def get_subscription(self, subscription_id: str) -> "Subscription":
         for sub in self.get_subscriptions():
             if sub.subscription_id == subscription_id:
                 return Subscription(self, sub, sub.subscription_id)
-        return None
+        raise ValueError(f"Subscription with ID {subscription_id} not found.")
 
 from azure.mgmt.cognitiveservices import CognitiveServicesManagementClient
 
@@ -66,35 +71,35 @@ class Subscription:
         self.resource_client = ResourceManagementClient(self.identity.get_credential(), self.subscription_id)
         self.storage_client = StorageManagementClient(self.identity.get_credential(), self.subscription_id)
 
-    def get_resource_group(self, group_name: str) -> Optional["ResourceGroup"]:
+    def get_resource_group(self, group_name: str) -> "ResourceGroup":
         groups = self.resource_client.resource_groups.list()
         for group in groups:
             if group.name.lower() == group_name.lower():
                 return ResourceGroup(self, group)
-        return None
+        raise ValueError(f"Resource group with name {group_name} not found.")
     
-    def create_resource_group(self, group_name: str, location: str) -> Optional["ResourceGroup"]:
+    def create_resource_group(self, group_name: str, location: str) -> "ResourceGroup":
         result = self.resource_client.resource_groups.create_or_update(
             group_name,
             {"location": location}
         )
         if result is not None:
             return ResourceGroup(self, result)
-        return None
+        raise ValueError(f"Failed to create resource group with name {group_name}.")
     
     def get_search_services(self) -> List[azsrm.SearchService]:
         search_mgmt_client = SearchManagementClient(self.identity.get_credential(), self.subscription_id)
         services = list(search_mgmt_client.services.list_by_subscription())
         return services 
     
-    def get_search_service(self, service_name: str) -> Optional["SearchService"]:
+    def get_search_service(self, service_name: str) -> "SearchService":
         services = self.get_search_services()
         for service in services:
             if service.name == service_name:
                 resource_group_name = service.id.split("/")[4] 
                 resource_group = self.get_resource_group(resource_group_name)
                 return SearchService(resource_group, service)
-        return None
+        raise ValueError(f"Search service with name {service_name} not found.")
     
     def get_storage_management_client(self) -> StorageManagementClient:
         if self.storage_client is None:
