@@ -1,6 +1,11 @@
 README.md
 main.py
 pyproject.toml
+AzWrap/__init__.py
+AzWrap/cli.py
+AzWrap/cli_config.py
+AzWrap/main.py
+AzWrap/wrapper.py
 AzWrap.egg-info/PKG-INFO
 AzWrap.egg-info/SOURCES.txt
 AzWrap.egg-info/dependency_links.txt
