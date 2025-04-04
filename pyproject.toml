@@ -29,13 +29,17 @@ dependencies = [
     "langchain-community>=0.3.19",
     "langchain-openai>=0.3.8",
     "python-dotenv>=1.0.1",
+    "PyPDF2>=3.0.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",  # Required for pandas Excel support
+    "click>=8.1.8",     # Required for CLI
 ]
 
 [project.scripts]
-azwrap = "azwrap.main:main"
+azwrap = "AzWrap.main:main"
 
 [tool.setuptools]
-packages = ["azwrap"]
+packages = ["AzWrap"]
 
 [dependency-groups]
 dev = [

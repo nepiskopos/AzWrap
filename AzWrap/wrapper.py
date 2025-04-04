@@ -523,7 +523,7 @@ class Container:
         except Exception as e:
             raise ValueError(f"Error searching for blobs with filename '{filename}': {str(e)}")
                        
-    def get_blob_type_from_properties(self, properties: BlobProperties) -> Optional[BlobType]:
+    def get_blob_type_from_properties(self, properties: BlobProperties) -> Optional["BlobType"]:
         """
         Detect the MIME type of a blob based on its properties
         
@@ -547,7 +547,7 @@ class Container:
             
         return None
             
-    def get_blob_type(self, blob_name: str) -> Optional[BlobType]:
+    def get_blob_type(self, blob_name: str) -> Optional["BlobType"]:
         """
         Detect the MIME type of a blob based on its content type and/or extension
         
@@ -612,11 +612,11 @@ class Container:
                     content_bytes = self.get_blob_content(blob_name)
                     from io import BytesIO
                     pdf_file = BytesIO(content_bytes)
-                    pdf_reader = PyPDF2.PdfFileReader(pdf_file)
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
                     
                     text = ""
-                    for page_num in range(pdf_reader.numPages):
-                        text += pdf_reader.getPage(page_num).extractText()
+                    for page_num in range(len(pdf_reader.pages)):
+                        text += pdf_reader.pages[page_num].extract_text()
                     
                     return text
                 except ImportError:
@@ -682,6 +682,7 @@ class Container:
 
 import azure.search.documents.indexes as azsdi
 import azure.search.documents.indexes.models as azsdim
+from azure.search.documents.indexes import SearchIndexerClient
 from azure.core.credentials import AzureKeyCredential
 class SearchService:
     search_service: azsrm.SearchService
@@ -783,7 +784,27 @@ class SearchService:
         
         # Update the index
         result = self.get_index_client().create_or_update_index(index)
-        return result
+        
+    def get_indexer_client(self) -> SearchIndexerClient:
+        """
+        Get a SearchIndexerClient for this search service.
+        
+        Returns:
+            SearchIndexerClient: A client to interact with Azure search service Indexers
+        """
+        return SearchIndexerClient(
+            endpoint=self.get_service_endpoint(),
+            credential=self.get_credential()
+        )
+    
+    def create_indexer_manager(self) -> "SearchIndexerManager":
+        """
+        Create a SearchIndexerManager for this search service.
+        
+        Returns:
+            SearchIndexerManager: A manager for working with indexers, data sources, and skillsets
+        """
+        return SearchIndexerManager(self)
 
 def get_std_vector_search( connections_per_node:int = 4, 
                           neighbors_list_size: int = 400, 
@@ -821,6 +842,349 @@ def get_std_vector_search( connections_per_node:int = 4,
         ]
     )
     return vector_search
+
+class SearchIndexerManager:
+    """
+    A manager for working with Azure AI Search indexers, data sources, and skillsets.
+    """
+    
+    def __init__(self, search_service: SearchService):
+        """
+        Initialize a new SearchIndexerManager.
+        
+        Args:
+            search_service: The SearchService to use
+        """
+        self.search_service = search_service
+        self.indexer_client = search_service.get_indexer_client()
+        
+    # Data Source Connection methods
+    def get_data_source_connections(self) -> List["DataSourceConnection"]:
+        """
+        Get all data source connections for this search service.
+        
+        Returns:
+            List of DataSourceConnection objects
+        """
+        data_sources = self.indexer_client.get_data_source_connections()
+        return [DataSourceConnection(self, ds) for ds in data_sources]
+        
+    def get_data_source_connection(self, name: str) -> Optional["DataSourceConnection"]:
+        """
+        Get a data source connection by name.
+        
+        Args:
+            name: The name of the data source connection
+            
+        Returns:
+            DataSourceConnection object or None if not found
+        """
+        try:
+            data_source = self.indexer_client.get_data_source_connection(name)
+            return DataSourceConnection(self, data_source)
+        except Exception:
+            return None
+            
+    def create_data_source_connection(self, name: str, type: str,
+                                     connection_string: str,
+                                     container: azsdim.SearchIndexerDataContainer) -> "DataSourceConnection":
+        """
+        Create a new data source connection.
+        
+        Args:
+            name: The name of the data source connection
+            type: The type of data source (e.g., "azureblob", "azuretable", "azuresql")
+            connection_string: The connection string for the data source
+            container: The container information
+            
+        Returns:
+            DataSourceConnection object
+        """
+        data_source = azsdim.SearchIndexerDataSourceConnection(
+            name=name,
+            type=type,
+            connection_string=connection_string,
+            container=container
+        )
+        result = self.indexer_client.create_data_source_connection(data_source)
+        return DataSourceConnection(self, result)
+        
+    # Indexer methods
+    def get_indexers(self) -> List["Indexer"]:
+        """
+        Get all indexers for this search service.
+        
+        Returns:
+            List of Indexer objects
+        """
+        indexers = self.indexer_client.get_indexers()
+        return [Indexer(self, indexer) for indexer in indexers]
+        
+    def get_indexer(self, name: str) -> Optional["Indexer"]:
+        """
+        Get an indexer by name.
+        
+        Args:
+            name: The name of the indexer
+            
+        Returns:
+            Indexer object or None if not found
+        """
+        try:
+            indexer = self.indexer_client.get_indexer(name)
+            return Indexer(self, indexer)
+        except Exception:
+            return None
+            
+    def create_indexer(self, name: str, data_source_name: str,
+                      target_index_name: str,
+                      schedule: Optional[azsdim.IndexingSchedule] = None,
+                      parameters: Optional[azsdim.IndexingParameters] = None) -> "Indexer":
+        """
+        Create a new indexer.
+        
+        Args:
+            name: The name of the indexer
+            data_source_name: The name of the data source to use
+            target_index_name: The name of the index to populate
+            schedule: Optional indexing schedule
+            parameters: Optional indexing parameters
+            
+        Returns:
+            Indexer object
+        """
+        indexer = azsdim.SearchIndexer(
+            name=name,
+            data_source_name=data_source_name,
+            target_index_name=target_index_name,
+            schedule=schedule,
+            parameters=parameters
+        )
+        result = self.indexer_client.create_indexer(indexer)
+        return Indexer(self, result)
+        
+    # Skillset methods
+    def get_skillsets(self) -> List["Skillset"]:
+        """
+        Get all skillsets for this search service.
+        
+        Returns:
+            List of Skillset objects
+        """
+        skillsets = self.indexer_client.get_skillsets()
+        return [Skillset(self, skillset) for skillset in skillsets]
+        
+    def get_skillset(self, name: str) -> Optional["Skillset"]:
+        """
+        Get a skillset by name.
+        
+        Args:
+            name: The name of the skillset
+            
+        Returns:
+            Skillset object or None if not found
+        """
+        try:
+            skillset = self.indexer_client.get_skillset(name)
+            return Skillset(self, skillset)
+        except Exception:
+            return None
+            
+    def create_skillset(self, name: str, skills: List[azsdim.SearchIndexerSkill],
+                       description: Optional[str] = None) -> "Skillset":
+        """
+        Create a new skillset.
+        
+        Args:
+            name: The name of the skillset
+            skills: The skills to include in the skillset
+            description: Optional description
+            
+        Returns:
+            Skillset object
+        """
+        skillset = azsdim.SearchIndexerSkillset(
+            name=name,
+            skills=skills,
+            description=description
+        )
+        result = self.indexer_client.create_skillset(skillset)
+        return Skillset(self, result)
+
+class DataSourceConnection:
+    """
+    Represents a data source connection in Azure AI Search.
+    """
+    
+    def __init__(self, manager: SearchIndexerManager, data_source: azsdim.SearchIndexerDataSourceConnection):
+        """
+        Initialize a new DataSourceConnection.
+        
+        Args:
+            manager: The SearchIndexerManager that created this object
+            data_source: The underlying SearchIndexerDataSourceConnection
+        """
+        self.manager = manager
+        self.data_source = data_source
+        
+    def get_name(self) -> str:
+        """
+        Get the name of this data source connection.
+        
+        Returns:
+            The name of the data source connection
+        """
+        return self.data_source.name
+        
+    def update(self, connection_string: Optional[str] = None,
+              container: Optional[azsdim.SearchIndexerDataContainer] = None) -> "DataSourceConnection":
+        """
+        Update this data source connection.
+        
+        Args:
+            connection_string: Optional new connection string
+            container: Optional new container
+            
+        Returns:
+            Updated DataSourceConnection
+        """
+        if connection_string:
+            self.data_source.connection_string = connection_string
+        if container:
+            self.data_source.container = container
+            
+        result = self.manager.indexer_client.create_or_update_data_source_connection(self.data_source)
+        return DataSourceConnection(self.manager, result)
+        
+    def delete(self) -> None:
+        """
+        Delete this data source connection.
+        """
+        self.manager.indexer_client.delete_data_source_connection(self.data_source)
+        
+class Indexer:
+    """
+    Represents an indexer in Azure AI Search.
+    """
+    
+    def __init__(self, manager: SearchIndexerManager, indexer: azsdim.SearchIndexer):
+        """
+        Initialize a new Indexer.
+        
+        Args:
+            manager: The SearchIndexerManager that created this object
+            indexer: The underlying SearchIndexer
+        """
+        self.manager = manager
+        self.indexer = indexer
+        
+    def get_name(self) -> str:
+        """
+        Get the name of this indexer.
+        
+        Returns:
+            The name of the indexer
+        """
+        return self.indexer.name
+        
+    def run(self) -> None:
+        """
+        Run this indexer.
+        """
+        self.manager.indexer_client.run_indexer(self.indexer.name)
+        
+    def reset(self) -> None:
+        """
+        Reset this indexer.
+        """
+        self.manager.indexer_client.reset_indexer(self.indexer.name)
+        
+    def get_status(self) -> azsdim.SearchIndexerStatus:
+        """
+        Get the status of this indexer.
+        
+        Returns:
+            The status of the indexer
+        """
+        return self.manager.indexer_client.get_indexer_status(self.indexer.name)
+        
+    def update(self, schedule: Optional[azsdim.IndexingSchedule] = None,
+              parameters: Optional[azsdim.IndexingParameters] = None) -> "Indexer":
+        """
+        Update this indexer.
+        
+        Args:
+            schedule: Optional new indexing schedule
+            parameters: Optional new indexing parameters
+            
+        Returns:
+            Updated Indexer
+        """
+        if schedule:
+            self.indexer.schedule = schedule
+        if parameters:
+            self.indexer.parameters = parameters
+            
+        result = self.manager.indexer_client.create_or_update_indexer(self.indexer)
+        return Indexer(self.manager, result)
+        
+    def delete(self) -> None:
+        """
+        Delete this indexer.
+        """
+        self.manager.indexer_client.delete_indexer(self.indexer)
+        
+class Skillset:
+    """
+    Represents a skillset in Azure AI Search.
+    """
+    
+    def __init__(self, manager: SearchIndexerManager, skillset: azsdim.SearchIndexerSkillset):
+        """
+        Initialize a new Skillset.
+        
+        Args:
+            manager: The SearchIndexerManager that created this object
+            skillset: The underlying SearchIndexerSkillset
+        """
+        self.manager = manager
+        self.skillset = skillset
+        
+    def get_name(self) -> str:
+        """
+        Get the name of this skillset.
+        
+        Returns:
+            The name of the skillset
+        """
+        return self.skillset.name
+        
+    def update(self, skills: Optional[List[azsdim.SearchIndexerSkill]] = None,
+              description: Optional[str] = None) -> "Skillset":
+        """
+        Update this skillset.
+        
+        Args:
+            skills: Optional new skills
+            description: Optional new description
+            
+        Returns:
+            Updated Skillset
+        """
+        if skills:
+            self.skillset.skills = skills
+        if description:
+            self.skillset.description = description
+            
+        result = self.manager.indexer_client.create_or_update_skillset(self.skillset)
+        return Skillset(self.manager, result)
+        
+    def delete(self) -> None:
+        """
+        Delete this skillset.
+        """
+        self.manager.indexer_client.delete_skillset(self.skillset)
+
 class SearchIndex:
     index_name: str
     fields: List[azsdim.SearchField]

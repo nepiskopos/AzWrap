@@ -23,14 +23,40 @@ The wrapper is organized in a hierarchical structure that mirrors Azure's resour
 
 ```mermaid
 graph TD
+    %% Core Authentication and Resource Management
     Identity --> Subscription
     Subscription --> ResourceGroup
+    
+    %% Storage Resources
     ResourceGroup --> StorageAccount
-    ResourceGroup --> SearchService
-    ResourceGroup --> AIService
     StorageAccount --> Container
+    Container -.uses.-> BlobType[BlobType Enum]
+    
+    %% Search Resources
+    ResourceGroup --> SearchService
     SearchService --> SearchIndex
+    SearchService --> SearchIndexerManager
+    
+    %% Indexer Components
+    SearchIndexerManager --> DataSourceConnection
+    SearchIndexerManager --> Indexer
+    SearchIndexerManager --> Skillset
+    
+    %% AI Resources
+    ResourceGroup --> AIService
     AIService --> OpenAIClient
+    
+    %% Class Styling
+    classDef core fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef storage fill:#bbf,stroke:#333,stroke-width:1px;
+    classDef search fill:#bfb,stroke:#333,stroke-width:1px;
+    classDef ai fill:#fbb,stroke:#333,stroke-width:1px;
+    
+    %% Apply Styles
+    class Identity,Subscription,ResourceGroup core;
+    class StorageAccount,Container,BlobType storage;
+    class SearchService,SearchIndex,SearchIndexerManager,DataSourceConnection,Indexer,Skillset search;
+    class AIService,OpenAIClient ai;
 ```
 
 This hierarchy reflects how resources are organized in Azure:
@@ -51,17 +77,22 @@ The wrapper uses several design patterns:
 
 Each class in the wrapper corresponds to a specific Azure resource or concept:
 
-| Wrapper Class  | Azure Resource/Concept     |
-| -------------- | -------------------------- |
-| Identity       | Azure AD Service Principal |
-| Subscription   | Azure Subscription         |
-| ResourceGroup  | Azure Resource Group       |
-| StorageAccount | Azure Storage Account      |
-| Container      | Azure Blob Container       |
-| SearchService  | Azure AI Search Service    |
-| SearchIndex    | Azure AI Search Index      |
-| AIService      | Azure OpenAI Service       |
-| OpenAIClient   | Azure OpenAI Client        |
+| Wrapper Class         | Azure Resource/Concept                |
+| --------------------- | ------------------------------------- |
+| Identity              | Azure AD Service Principal            |
+| Subscription          | Azure Subscription                    |
+| ResourceGroup         | Azure Resource Group                  |
+| StorageAccount        | Azure Storage Account                 |
+| Container             | Azure Blob Container                  |
+| BlobType              | MIME Type Enumeration for Blobs       |
+| SearchService         | Azure AI Search Service               |
+| SearchIndex           | Azure AI Search Index                 |
+| SearchIndexerManager  | Azure AI Search Indexer Management    |
+| DataSourceConnection  | Azure AI Search Data Source           |
+| Indexer               | Azure AI Search Indexer               |
+| Skillset              | Azure AI Search Skillset              |
+| AIService             | Azure OpenAI Service                  |
+| OpenAIClient          | Azure OpenAI Client                   |
 
 ## Core Classes
 
@@ -437,6 +468,206 @@ response = openai_client.generate_chat_completion(
 print(response.choices[0].message.content)
 ```
 
+### Indexer Management
+
+#### SearchIndexerManager Class
+
+The `SearchIndexerManager` class provides methods to manage indexers, data sources, and skillsets in Azure AI Search.
+
+**Purpose**: Manage indexers, data sources, and skillsets for a search service.
+
+**Key Attributes**:
+- `search_service`: Reference to the SearchService object
+- `indexer_client`: Azure SearchIndexerClient for managing indexers
+
+**Key Methods**:
+- `get_data_source_connections()`: Lists all data source connections
+- `get_data_source_connection(name)`: Gets a specific data source connection
+- `create_data_source_connection()`: Creates a new data source connection
+- `get_indexers()`: Lists all indexers
+- `get_indexer(name)`: Gets a specific indexer
+- `create_indexer()`: Creates a new indexer
+- `get_skillsets()`: Lists all skillsets
+- `get_skillset(name)`: Gets a specific skillset
+- `create_skillset()`: Creates a new skillset
+
+**Usage Example**:
+```python
+# Get a search service
+search_service = resource_group.get_search_service("my-search-service")
+
+# Create an indexer manager
+indexer_manager = search_service.create_indexer_manager()
+
+# List all indexers
+indexers = indexer_manager.get_indexers()
+for indexer in indexers:
+    print(f"Indexer: {indexer.get_name()}")
+
+# Create a data source connection
+container = azsdim.SearchIndexerDataContainer(name="my-container")
+data_source = indexer_manager.create_data_source_connection(
+    name="my-blob-datasource",
+    type="azureblob",
+    connection_string="DefaultEndpointsProtocol=https;AccountName=mystorageaccount;...",
+    container=container
+)
+
+# Create an indexer
+indexer = indexer_manager.create_indexer(
+    name="my-indexer",
+    data_source_name="my-blob-datasource",
+    target_index_name="my-index"
+)
+```
+
+#### DataSourceConnection Class
+
+The `DataSourceConnection` class represents a data source connection in Azure AI Search.
+
+**Purpose**: Manage a connection to a data source for indexing.
+
+**Key Attributes**:
+- `manager`: Reference to the SearchIndexerManager
+- `data_source`: Azure data source connection object
+
+**Key Methods**:
+- `get_name()`: Gets the name of the data source connection
+- `update()`: Updates the data source connection
+- `delete()`: Deletes the data source connection
+
+**Usage Example**:
+```python
+# Get a data source connection
+data_source = indexer_manager.get_data_source_connection("my-blob-datasource")
+
+# Update the connection string
+data_source.update(connection_string="DefaultEndpointsProtocol=https;AccountName=mystorageaccount;...")
+
+# Delete the data source
+data_source.delete()
+```
+
+#### Indexer Class
+
+The `Indexer` class represents an indexer in Azure AI Search.
+
+**Purpose**: Manage an indexer that populates an index from a data source.
+
+**Key Attributes**:
+- `manager`: Reference to the SearchIndexerManager
+- `indexer`: Azure indexer object
+
+**Key Methods**:
+- `get_name()`: Gets the name of the indexer
+- `run()`: Runs the indexer
+- `reset()`: Resets the indexer
+- `get_status()`: Gets the status of the indexer
+- `update()`: Updates the indexer
+- `delete()`: Deletes the indexer
+
+**Usage Example**:
+```python
+# Get an indexer
+indexer = indexer_manager.get_indexer("my-indexer")
+
+# Run the indexer
+indexer.run()
+
+# Check the status
+status = indexer.get_status()
+print(f"Indexer status: {status.last_result.status}")
+
+# Reset the indexer
+indexer.reset()
+
+# Update the indexer schedule
+from azure.search.documents.indexes.models import IndexingSchedule
+schedule = IndexingSchedule(interval=timedelta(hours=12))
+indexer.update(schedule=schedule)
+```
+
+#### Skillset Class
+
+The `Skillset` class represents a skillset in Azure AI Search.
+
+**Purpose**: Manage a set of cognitive skills for enriching data during indexing.
+
+**Key Attributes**:
+- `manager`: Reference to the SearchIndexerManager
+- `skillset`: Azure skillset object
+
+**Key Methods**:
+- `get_name()`: Gets the name of the skillset
+- `update()`: Updates the skillset
+- `delete()`: Deletes the skillset
+
+**Usage Example**:
+```python
+# Get a skillset
+skillset = indexer_manager.get_skillset("my-skillset")
+
+# Update the skillset with new skills
+from azure.search.documents.indexes.models import OcrSkill, MergeSkill
+skills = [
+    OcrSkill(
+        name="ocr-skill",
+        description="Extract text from images",
+        context="/document/normalized_images/*",
+        text_extraction_algorithm="printed"
+    ),
+    MergeSkill(
+        name="merge-skill",
+        description="Merge extracted text",
+        context="/document",
+        inputs=[
+            {"name": "text", "source": "/document/content"},
+            {"name": "itemsToMerge", "source": "/document/normalized_images/*/text"}
+        ],
+        output={"name": "mergedText", "targetName": "content"}
+    )
+]
+skillset.update(skills=skills)
+```
+
+### Blob Type Enumeration
+
+#### BlobType Enum
+
+The `BlobType` enum provides MIME type constants and utilities for working with blob content.
+
+**Purpose**: Identify and work with different types of blob content.
+
+**Key Values**:
+- Text formats: `TEXT_PLAIN`, `TEXT_CSV`, `TEXT_HTML`, etc.
+- Application formats: `APP_JSON`, `APP_PDF`, `APP_ZIP`, etc.
+- Microsoft Office formats: `MS_WORD`, `MS_EXCEL`, `MS_POWERPOINT`
+- Image formats: `IMAGE_JPEG`, `IMAGE_PNG`, `IMAGE_GIF`, etc.
+- Audio formats: `AUDIO_MP3`, `AUDIO_WAV`, `AUDIO_OGG`
+- Video formats: `VIDEO_MP4`, `VIDEO_WEBM`, `VIDEO_OGG`
+
+**Key Methods**:
+- `from_extension(extension)`: Get MIME type from file extension
+- `from_mime_type(mime_type)`: Get BlobType from MIME type string
+
+**Usage Example**:
+```python
+# Get a container
+container = storage_account.get_container("my-container")
+
+# Get blob type from extension
+blob_type = BlobType.from_extension(".pdf")
+print(f"PDF MIME type: {blob_type.value}")
+
+# Get blob type from a blob
+blob_name = "documents/report.docx"
+blob_type = container.get_blob_type(blob_name)
+print(f"Blob type: {blob_type.name}")
+
+# Process blob based on its type
+content = container.process_blob_by_type(blob_name)
+```
+
 ## Common Workflows
 
 ### Authentication and Resource Access
@@ -517,6 +748,71 @@ search_client.upload_documents(documents)
 results = index.perform_search(search_text="example document")
 ```
 
+### Setting up Indexers and Data Sources
+
+Creating and using indexers to automatically populate search indexes:
+
+```python
+# Get an indexer manager
+indexer_manager = search_service.create_indexer_manager()
+
+# Create a data source connection for Azure Blob Storage
+from azure.search.documents.indexes.models import SearchIndexerDataContainer
+container = SearchIndexerDataContainer(name="my-container")
+data_source = indexer_manager.create_data_source_connection(
+    name="my-blob-datasource",
+    type="azureblob",
+    connection_string="DefaultEndpointsProtocol=https;AccountName=mystorageaccount;...",
+    container=container
+)
+
+# Create a skillset for document enrichment
+from azure.search.documents.indexes.models import OcrSkill, MergeSkill
+skills = [
+    OcrSkill(
+        name="ocr-skill",
+        description="Extract text from images",
+        context="/document/normalized_images/*",
+        text_extraction_algorithm="printed"
+    ),
+    MergeSkill(
+        name="merge-skill",
+        description="Merge extracted text",
+        context="/document",
+        inputs=[
+            {"name": "text", "source": "/document/content"},
+            {"name": "itemsToMerge", "source": "/document/normalized_images/*/text"}
+        ],
+        output={"name": "mergedText", "targetName": "content"}
+    )
+]
+skillset = indexer_manager.create_skillset(
+    name="my-skillset",
+    skills=skills,
+    description="Skillset for OCR and text merging"
+)
+
+# Create an indexer that uses the data source and skillset
+from azure.search.documents.indexes.models import IndexingSchedule
+from datetime import timedelta
+
+schedule = IndexingSchedule(interval=timedelta(hours=12))
+indexer = indexer_manager.create_indexer(
+    name="my-indexer",
+    data_source_name="my-blob-datasource",
+    target_index_name="my-index",
+    skillset_name="my-skillset",
+    schedule=schedule
+)
+
+# Run the indexer
+indexer.run()
+
+# Check the indexer status
+status = indexer.get_status()
+print(f"Indexer status: {status.last_result.status if status.last_result else 'No results yet'}")
+```
+
 ### Integrating with Azure OpenAI
 
 Using Azure OpenAI for embeddings and search:
@@ -584,9 +880,10 @@ The wrapper.py file provides a comprehensive object-oriented interface for worki
 
 1. Authenticate with Azure
 2. Manage Azure resources
-3. Work with Azure Storage
+3. Work with Azure Storage and handle different blob types
 4. Create and use Azure AI Search indexes
-5. Integrate with Azure OpenAI services
+5. Set up and manage indexers, data sources, and skillsets
+6. Integrate with Azure OpenAI services
 
 The hierarchical structure of the classes mirrors Azure's resource organization, making it intuitive to understand and use. By following the examples and best practices in this documentation, you can effectively leverage the wrapper to build applications that utilize Azure's powerful cloud services.
 
