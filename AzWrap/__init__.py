@@ -4,7 +4,7 @@ Azure Wrapper Library - Simplifies interaction with Azure services
 """
 
 # Version
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 # Identity and Resource Management
 from .wrapper import (
