@@ -8,8 +8,8 @@ from enum import Enum
 from time import time 
 from typing import Any, Callable, List, Dict, Optional, Tuple, Union, ClassVar
 
-from azure.identity import ClientSecretCredential
-from azure.core.credentials import AccessToken
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
+from azure.core.credentials import AccessToken, TokenCredential
 from azure.mgmt.resource import SubscriptionClient, ResourceManagementClient
 from azure.mgmt.storage import StorageManagementClient
 import azure.mgmt.storage.models as azstm
@@ -21,26 +21,44 @@ import azure.search.documents as azsd
 from azure.search.documents.models import VectorizedQuery, VectorizableTextQuery, QueryType
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 class Identity:
+    """Azure Identity for authentication.
 
-    tenant_id: str
-    client_id: str
-    client_secret: str
-    credential: ClientSecretCredential
+    Two authentication methods are supported, both implementing TokenCredential:
+    1. Default authentication (when no arguments provided):
+       - Uses DefaultAzureCredential for automatic authentication
+    2. Service Principal authentication (when any argument provided):
+       - Requires all three: tenant_id, client_id, client_secret
+       - Uses ClientSecretCredential
+    """
+
+    credential: TokenCredential
+    tenant_id: Optional[str] = None
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
 
     subscription_client: SubscriptionClient
 
-    def __init__(self, tenant_id: str, client_id: str, client_secret: str):
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.tenant_id = tenant_id
-        self.credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
-        #get token to validate credentials
+    def __init__(self, tenant_id: Optional[str] = None, client_id: Optional[str] = None, client_secret: Optional[str] = None):
+        # Use DefaultAzureCredential when all parameters are None
+        if tenant_id is None and client_id is None and client_secret is None:
+            self.credential = DefaultAzureCredential()
+        else:
+            # Require all parameters for ClientSecretCredential
+            if not all([tenant_id, client_id, client_secret]):
+                raise ValueError("For client credential auth, all three parameters (tenant_id, client_id, client_secret) are required")
+
+            self.tenant_id = tenant_id
+            self.client_id = client_id
+            self.client_secret = client_secret
+            self.credential = ClientSecretCredential(tenant_id=tenant_id, client_id=client_id, client_secret=client_secret)
+
+        # Validate credentials
         token:AccessToken = self.credential.get_token("https://management.azure.com/.default")
         if token is None:
             raise ValueError("Failed to get token. Check your credentials.")
         self.subscription_client = SubscriptionClient(self.credential)
     
-    def get_credential(self) -> ClientSecretCredential:
+    def get_credential(self) -> TokenCredential:
         return self.credential
     
     def get_subscriptions(self) -> List[azsbm.Subscription]:
