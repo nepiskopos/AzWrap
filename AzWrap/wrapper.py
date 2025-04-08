@@ -1491,7 +1491,7 @@ class SearchIndex:
             window_size (int): Number of chunks to include before and after each result
             semantic_enabled (bool): Whether to enable semantic search
             top_k (int): Number of results to return
-            vector_fields (list): List of vector fields to search
+            vector_fields (str): comma separated(?) vector fields to search
             text_fields (list): List of text fields to search
             filter_condition (str): Optional OData filter condition
             
