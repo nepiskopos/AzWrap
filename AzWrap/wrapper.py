@@ -1,4 +1,3 @@
-
 import os
 import regex as re
 import json
@@ -476,6 +475,50 @@ class Container:
             ValueError: If the blob cannot be found or accessed
         """
         return self.get_blob_content(blob_properties.name)
+    
+        
+    def get_docx_content(self, blob_name: str) -> str:
+        """
+        Get the content of a Word DOCX file as text
+        
+        Args:
+            blob_name: Name of the blob to retrieve
+            
+        Returns:
+            str: The text content extracted from the DOCX file
+            
+        Raises:
+            ValueError: If the blob cannot be found, accessed, or is not a valid DOCX file
+            ImportError: If the required docx package is not installed
+        """
+        try:
+            # Import docx library for processing Word documents
+            try:
+                import docx
+            except ImportError:
+                raise ImportError("The python-docx package is required to read DOCX files. Install it with 'pip install python-docx'")
+            
+            # Get the blob content as bytes
+            content_bytes = self.get_blob_content(blob_name)
+            
+            # Create a file-like object from the bytes
+            from io import BytesIO
+            docx_file = BytesIO(content_bytes)
+            
+            # Load the document
+            document = docx.Document(docx_file)
+            
+            # Extract text from all paragraphs
+            paragraphs = [para.text for para in document.paragraphs]
+            
+            # Join paragraphs with newlines
+            text_content = '\n'.join(paragraphs)
+            
+            return text_content
+        except ImportError as e:
+            raise e
+        except Exception as e:
+            raise ValueError(f"Error extracting text from DOCX blob {blob_name}: {str(e)}")
         
     def delete_blob(self, blob_name: str) -> bool:
         """
@@ -1695,7 +1738,7 @@ class SearchIndex:
             )
         return search_client  
 
-    def extend_index_schema( self, new_fields: List[azsdim.SearchField] ) -> Optional[bool]:
+    def extend_index_schema(self, new_fields: List[azsdim.SearchField] ) -> Optional[bool]:
         """
         Extend an Azure AI Search index schema with new fields
         
@@ -1730,7 +1773,7 @@ class SearchIndex:
             print(f"Error extending index: {str(e)}")
             raise
 
-    def process_data_in_batches( self, 
+    def process_data_in_batches(self, 
                                 index_name: Optional[str] = None,
                                 transaction: Callable[[List[Dict[str, Any]]], int] = None,
                                 search_text: str = "*",
@@ -1807,6 +1850,7 @@ class SearchIndex:
         # Return the number of successfully uploaded documents
         return result
     
+
     def copy_index_data(self, source_index_name: str, target_index_name: str, fields_to_copy: Optional[List[str]] = None, batch_size: int = 100) -> Tuple[int, int]:
         """
         Copy data from source index to target index, excluding the removed fields
@@ -2120,6 +2164,20 @@ class SearchIndex:
             processed_results.append(processed_result)
         
         return processed_results    
+
+    def upload_documents(self, documents: List[Dict[str, Any]]) -> List[Any]:
+        """
+        Upload documents to the search index.
+        
+        Args:
+            documents: List of document dictionaries to upload
+            
+        Returns:
+            List of results for each document upload operation
+        """
+        search_client = self.get_search_client()
+        return search_client.upload_documents(documents)
+    
 
 from openai import AzureOpenAI
 class AIService:
