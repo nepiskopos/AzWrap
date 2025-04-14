@@ -748,7 +748,60 @@ class SearchService:
         if index and index.name == index_name:
             return SearchIndex(self, index.name, index.fields, index.vector_search)
         return None
-      
+    
+    def add_simple_field(self, field_name: str, field_type: str, is_filterable: bool = False, is_key: bool = False, **kw) -> azsdim.SimpleField:
+        """
+        Create a new field for the search index.
+        
+        Args:
+            field_name: The name of the field
+            field_type: The type of the field as defined in azure.search.documents.indexes.models.SearchFieldDataType
+            is_filterable: Whether the field is filterable
+            is_key: Whether the field uniquely identifies documents in the index
+            
+        Returns:
+            SimpleField: The created simple field
+        """
+
+        from azure.search.documents.indexes.models import SearchFieldDataType
+
+        resolved_type = getattr(SearchFieldDataType, field_type)
+
+        return azsdim.SimpleField(name=field_name, type=resolved_type, filterable=is_filterable, key=is_key, **kw)
+    
+    def add_searchable_field(self, field_name: str, field_collection_type: bool = False, is_filterable: bool = False, is_searchable: bool = True, is_key: bool = False, analyzer_name: Optional[Union[str, str]] = None, **kw) -> azsdim.SearchableField:
+        """
+        Create a new searchable field for the search index.
+        
+        Args:
+            field_name: The name of the field
+            field_collection_type: Whether the field is a collection or a String
+            is_filterable: Whether the field is filterable
+            is_searchable: Whether the field is searchable
+            is_key: Whether the field uniquely identifies documents in the index
+            analyzer_name: The name of the analyzer to use for this field
+            
+        Returns:
+            SearchableField: The created searchable field
+        """
+        return azsdim.SearchableField(name=field_name, collection=field_collection_type, searchable=is_searchable, filterable=is_filterable, key=is_key, analyzer_name=analyzer_name, **kw)
+    
+    def add_search_field(self, field_name: str, field_type: str, is_searchable: bool = True, vector_search_dimensions: Optional[int] = None, vector_search_profile_name: Optional[str] = None, **kw) -> azsdim.SearchField:
+        """
+        Create a new search field for the search index.
+        
+        Args:
+            field_name: The name of the field
+            field_type: The type of the field
+            is_searchable: Whether the field is searchable
+            vector_search_dimensions: The dimensions for the space used for vector search
+            vector_search_profile_name: The name of the vector search profile
+            
+        Returns:
+            SearchField: The created search field
+        """
+        return azsdim.SearchField(name=field_name, type=field_type, searchable=is_searchable, vector_search_dimensions=vector_search_dimensions, vector_search_profile_name=vector_search_profile_name, **kw)
+
     def create_or_update_index(self, index_name: str, fields: List[azsdim.SearchField], vector_search: Optional[azsdim.VectorSearch] = None) -> "SearchIndex":
         return SearchIndex(self, index_name, fields, vector_search)
     
@@ -781,7 +834,7 @@ class SearchService:
         # Define semantic configuration
         semantic_config = azsdim.SemanticConfiguration(
             name=semantic_config_name,
-            prioritized_fields=azsdim.PrioritizedFields(
+            prioritized_fields=azsdim.SemanticPrioritizedFields(
                 title_field=azsdim.SemanticField(field_name=title_field),
                 prioritized_content_fields=[
                     azsdim.SemanticField(field_name=field) for field in content_fields
@@ -792,13 +845,11 @@ class SearchService:
             )
         )
         
-        # Create semantic settings with the configuration
-        semantic_settings = azsdim.SemanticSettings(
-            configurations=[semantic_config]
-        )
+        # Create SemanticSearch instance
+        semantic_search = azsdim.SemanticSearch(configurations=[semantic_config])
         
         # Add semantic settings to the index
-        index.semantic_settings = semantic_settings
+        index.semantic_search = semantic_search
         
         # Update the index
         result = self.get_index_client().create_or_update_index(index)
@@ -856,6 +907,37 @@ def get_std_vector_search( connections_per_node:int = 4,
             azsdim.VectorSearchProfile(
                 name="default-profile",
                 algorithm_configuration_name="default-algorithm"
+            )
+        ]
+    )
+    return vector_search
+
+def get_exhaustive_KNN_vector_search(algorithm_name: str = "default-algorithm", 
+                                     vector_search_profile_name: str = "default-profile", 
+                                     metric: str = "cosine") -> azsdim.VectorSearch:
+    """
+    Get an exhaustive KNN vector search configuration.
+    Args:
+        algorithm_name: Name of the algorithm. Default is "default-algorithm".
+        vector_search_profile_name: Name of the vector search profile. Default is "default-profile".
+        metric: Distance metric (cosine, euclidean, dotProduct). Default is cosine.
+    Returns:
+        An exhaustive KNN vector search configuration
+    """
+    # Define vector search configuration
+    vector_search = azsdim.VectorSearch(
+        algorithms=[
+            azsdim.ExhaustiveKnnAlgorithmConfiguration(
+                name=algorithm_name,
+                parameters=azsdim.ExhaustiveKnnParameters(
+                    metric=metric
+                )
+            )
+        ],
+        profiles=[
+            azsdim.VectorSearchProfile(
+                name=vector_search_profile_name,
+                algorithm_configuration_name=algorithm_name
             )
         ]
     )
@@ -1217,7 +1299,7 @@ class SearchIndex:
         self.vector_search = vector_search
 
         # SimpleField, SearchableField, ComplexField, are derived from SearchField
-        index_definition = azsdim.SearchIndex(name=self.index_name, fields=fields)
+        index_definition = azsdim.SearchIndex(name=self.index_name, fields=fields, vector_search=vector_search)
         self.azure_index = self.search_service.get_index_client().create_or_update_index(index_definition)
 
     def get_search_client(self, index_name: Optional[str] = None ) -> azsd.SearchClient:
