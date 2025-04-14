@@ -890,9 +890,6 @@ def create_command_function(group_name, cmd_name, cmd_config):
         func.__name__ = func_name
         return func
 
-def create_hierarchical_knowledge_base():
-    pass
-
 def main():
     """Main entry point for the azwrap CLI."""
     try:

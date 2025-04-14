@@ -119,7 +119,7 @@ class Subscription:
             if service.name == service_name:
                 resource_group_name = service.id.split("/")[4] 
                 resource_group = self.get_resource_group(resource_group_name)
-                return SearchService(resource_group, service)
+                return SearchService(self, resource_group, service)
         raise ValueError(f"Search service with name {service_name} not found.")
     
     def get_storage_management_client(self) -> StorageManagementClient:
@@ -704,15 +704,20 @@ import azure.search.documents.indexes as azsdi
 import azure.search.documents.indexes.models as azsdim
 from azure.search.documents.indexes import SearchIndexerClient
 from azure.core.credentials import AzureKeyCredential
+from docx import Document
+from io import BytesIO
+from datetime import datetime
 class SearchService:
     search_service: azsrm.SearchService
+    subscription: Subscription
     resource_group: ResourceGroup
     index_client: azsdi.SearchIndexClient
     search_client: azsd.SearchClient
     openai_client: Any
     index_name: str
 
-    def __init__(self, resource_group: ResourceGroup, search_service: azsrm.SearchService):
+    def __init__(self, subscription: Subscription, resource_group: ResourceGroup, search_service: azsrm.SearchService):
+        self.subscription = subscription
         self.resource_group = resource_group
         self.search_service = search_service
         self.index_client: Optional[azsdi.SearchIndexClient] = None
@@ -751,7 +756,7 @@ class SearchService:
             return SearchIndex(self, index.name, index.fields, index.vector_search)
         return None
     
-    def add_simple_field(self, field_name: str, field_type: str, is_filterable: bool = False, is_key: bool = False, **kw) -> azsdim.SimpleField:
+    def add_simple_field(self, field_name: str, field_type: str, filterable: bool = False, is_key: bool = False, **kw) -> azsdim.SimpleField:
         """
         Create a new field for the search index.
         
@@ -769,9 +774,9 @@ class SearchService:
 
         resolved_type = getattr(SearchFieldDataType, field_type)
 
-        return azsdim.SimpleField(name=field_name, type=resolved_type, filterable=is_filterable, key=is_key, **kw)
+        return azsdim.SimpleField(name=field_name, type=resolved_type, filterable=filterable, key=is_key, **kw)
     
-    def add_searchable_field(self, field_name: str, field_collection_type: bool = False, is_filterable: bool = False, is_searchable: bool = True, is_key: bool = False, analyzer_name: Optional[Union[str, str]] = None, **kw) -> azsdim.SearchableField:
+    def add_searchable_field(self, field_name: str, field_collection_type: bool = False, filterable: bool = False, searchable: bool = True, is_key: bool = False, analyzer_name: Optional[Union[str, str]] = None, **kw) -> azsdim.SearchableField:
         """
         Create a new searchable field for the search index.
         
@@ -786,9 +791,9 @@ class SearchService:
         Returns:
             SearchableField: The created searchable field
         """
-        return azsdim.SearchableField(name=field_name, collection=field_collection_type, searchable=is_searchable, filterable=is_filterable, key=is_key, analyzer_name=analyzer_name, **kw)
+        return azsdim.SearchableField(name=field_name, collection=field_collection_type, searchable=searchable, filterable=filterable, key=is_key, analyzer_name=analyzer_name, **kw)
     
-    def add_search_field(self, field_name: str, field_type: str, is_searchable: bool = True, vector_search_dimensions: Optional[int] = None, vector_search_profile_name: Optional[str] = None, **kw) -> azsdim.SearchField:
+    def add_search_field(self, field_name: str, field_type: str, searchable: bool = True, vector_search_dimensions: Optional[int] = None, vector_search_profile_name: Optional[str] = None, **kw) -> azsdim.SearchField:
         """
         Create a new search field for the search index.
         
@@ -802,7 +807,7 @@ class SearchService:
         Returns:
             SearchField: The created search field
         """
-        return azsdim.SearchField(name=field_name, type=field_type, searchable=is_searchable, vector_search_dimensions=vector_search_dimensions, vector_search_profile_name=vector_search_profile_name, **kw)
+        return azsdim.SearchField(name=field_name, type=field_type, searchable=searchable, vector_search_dimensions=vector_search_dimensions, vector_search_profile_name=vector_search_profile_name, **kw)
 
     def create_or_update_index(self, index_name: str, fields: List[azsdim.SearchField], vector_search: Optional[azsdim.VectorSearch] = None) -> "SearchIndex":
         return SearchIndex(self, index_name, fields, vector_search)
@@ -876,6 +881,380 @@ class SearchService:
             SearchIndexerManager: A manager for working with indexers, data sources, and skillsets
         """
         return SearchIndexerManager(self)
+    
+    def run_hierarchical_indexing_flow(self):
+        """
+        Run the hierarchical indexing flow.
+        
+        This method implements the indexing flow with error handling and logging.
+        """
+        log_file = f"indexing_flow_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        try:
+                # Load index template
+                try:
+                    with open(os.getenv("INDEX_TEMPLATE_PATH"), "r") as f:
+                        format = f.read()
+                except Exception as e:
+                    error_msg = f"Error loading index template: {str(e)}"
+                    raise Exception(error_msg) from e
+
+                # Configure semantic and vector search settings
+                try:
+                    semantic_config = {
+                        "title_field": "process_name",
+                        "content_fields": ["header_content"],
+                        "keyword_fields": ["domain"],
+                        "semantic_config_name": "main-data-test-semantic-config"
+                    }
+
+                    vector_search_config = {
+                        "algorithm_name": "vector-config",
+                        "vector_search_profile_name": "vector-search-profile",
+                        "metric": "cosine"
+                    }
+                    
+                    vector_search = get_exhaustive_KNN_vector_search(
+                        vector_search_config['algorithm_name'], 
+                        vector_search_config['vector_search_profile_name'], 
+                        vector_search_config['metric']
+                    )
+                except Exception as e:
+                    error_msg = f"Error configuring search settings: {str(e)}"
+                    raise Exception(error_msg) from e
+
+                # Define core index fields
+                try:
+                    core_index_fields = [
+                        self.add_simple_field(
+                            field_name="process_id", 
+                            field_type="String", 
+                            searchable=True, 
+                            filterable=True, 
+                            retrievable=True, 
+                            is_key=True, 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="process_name", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="doc_name", 
+                            field_type="String",
+                            searchable=True, 
+                            retrievable=True, 
+                            filterable=True,
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="domain", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            filterable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="sub_domain", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            filterable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="functional_area", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene',
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="functional_subarea", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="process_group", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="process_subgroup", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="reference_documents", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="related_products", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="additional_information", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="non_llm_summary", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_search_field(
+                            field_name="embedding_summary",
+                            field_type="Collection(Edm.Single)",
+                            searchable=True,
+                            vector_search_dimensions=3072,
+                            vector_search_profile_name="vector-search-profile"
+                        )
+                    ]
+                except Exception as e:
+                    error_msg = f"Error defining core index fields: {str(e)}"
+                    raise Exception(error_msg) from e
+
+                # Define detail index fields
+                try:
+                    detail_index_fields = [
+                        self.add_simple_field(
+                            field_name="id", 
+                            field_type="String", 
+                            searchable=True, 
+                            filterable=True, 
+                            retrievable=True, 
+                            is_key=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_simple_field(
+                            field_name="process_id", 
+                            field_type="String",
+                            searchable=True,
+                            filterable=True, 
+                            retrievable=True
+                        ),
+                        self.add_simple_field(
+                            field_name="step_number", 
+                            field_type="Int64",
+                            searchable=True,
+                            sortable=True,
+                            filterable=True, 
+                            retrievable=True
+                        ),
+                        self.add_searchable_field(
+                            field_name="step_name", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="step_content", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="documents_used", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_searchable_field(
+                            field_name="systems_used", 
+                            field_type="String", 
+                            searchable=True, 
+                            retrievable=True, 
+                            analyzer_name='el.lucene', 
+                            normalizer_name='lowercase'
+                        ),
+                        self.add_search_field(
+                            field_name="embedding_title",
+                            field_type="Collection(Edm.Single)",
+                            searchable=True,
+                            vector_search_dimensions=3072,
+                            vector_search_profile_name="vector-search-profile"
+                        ),
+                        self.add_search_field(
+                            field_name="embedding_content",
+                            field_type="Collection(Edm.Single)",
+                            searchable=True,
+                            vector_search_dimensions=3072,
+                            vector_search_profile_name="vector-search-profile"
+                        )
+                    ]
+                except Exception as e:
+                    error_msg = f"Error defining detail index fields: {str(e)}"
+                    raise Exception(error_msg) from e
+
+                # Get index names from environment variables
+                core_index_name = os.getenv("INDEX-CORE")
+                detail_index_name = os.getenv("INDEX-DETAIL")
+                
+                if not core_index_name or not detail_index_name:
+                    error_msg = "Missing required environment variables: INDEX-CORE or INDEX-DETAIL"
+                    raise ValueError(error_msg)
+                
+                # Create or update indices
+                try:
+                    self.create_or_update_index(index_name=core_index_name, fields=core_index_fields, vector_search=vector_search)
+                    self.create_or_update_index(index_name=detail_index_name, fields=detail_index_fields, vector_search=vector_search)
+                    
+                except Exception as e:
+                    error_msg = f"Error creating or updating indices: {str(e)}"
+                    raise Exception(error_msg) from e
+
+                # Get storage account and container
+                try:
+                    StAc = self.resource_group.get_storage_account(os.getenv("AZURE_STORAGE_ACCOUNT_NAME"))
+                    container = StAc.get_container(os.getenv("AZURE_CONTAINER"))
+                    folder_structure = container.get_folder_structure()
+                    
+                except Exception as e:
+                    error_msg = f"Error accessing storage: {str(e)}"
+                    raise Exception(error_msg) from e
+
+                # Get cognitive services client
+                try:
+                    cog_mgmt_client = self.subscription.get_cognitive_client()
+                    target_account_name = os.getenv("AI_SERVICE_ACCOUNT_NAME")
+
+                    if not target_account_name:
+                        error_msg = "Missing required environment variable: AI_SERVICE_ACCOUNT_NAME"
+                        raise ValueError(error_msg)
+
+                    account_details = next(
+                        (acc for acc in cog_mgmt_client.accounts.list_by_resource_group(self.resource_group.azure_resource_group.name)
+                        if acc.name == target_account_name), None
+                    )
+                    
+                    if not account_details:
+                        error_msg = f"Azure OpenAI account '{target_account_name}' not found in resource group '{self.resource_group.name}'."
+                        raise ValueError(error_msg)
+
+                    ai_service = AIService(self.resource_group, cog_mgmt_client, account_details)
+                except Exception as e:
+                    error_msg = f"Error initializing AI service: {str(e)}"
+                    raise Exception(error_msg) from e
+
+                # Process files in each folder
+                successful_files = 0
+                failed_files = 0
+                processing_results = []
+
+                for folder, files in folder_structure.items():                    
+                    for file in files:                        
+                        try:
+                            # Get blob content
+                            blob = container.get_blob_content(f"{folder}/{file}")
+                            byte_stream = BytesIO(blob)
+                            doc = Document(byte_stream)
+
+                            # Parse document
+                            parsing = DocParsing(doc, ai_service, format, "domain", folder, "gpt-4o-global-standard", file)
+                            parsed = parsing.doc_to_json()
+                            
+                            # Save parsed document
+                            parsed_file = f"parsed_{folder}_{file}.json"
+                            with open(parsed_file, "w") as f:
+                                json.dump(parsed, f, indent=4)
+
+                            # Get indices
+                            core_index = self.get_index(core_index_name)
+                            detail_index = self.get_index(detail_index_name)
+
+                            # Process document
+                            processor = MultiProcessHandler(parsed, core_index, detail_index, ai_service)
+                            records = processor.process_documents()
+                            
+                            # Save processed records
+                            records_file = f"records_{folder}_{file}.json"
+                            with open(records_file, "w") as f:
+                                json.dump(records, f, indent=4)
+
+                            # Upload to Azure Cognitive Search indices
+                            upload_result = processor.upload_to_azure_index(records, core_index_name, detail_index_name)
+                            
+                            successful_files += 1
+                            processing_results.append({
+                                "file": f"{folder}/{file}",
+                                "status": "success",
+                                "records_count": len(records) if records else 0
+                            })
+                        except Exception as e:
+                            error_msg = f"  Error processing file {folder}/{file}: {str(e)}"
+                            failed_files += 1
+                            processing_results.append({
+                                "file": f"{folder}/{file}",
+                                "status": "failed",
+                                "error": str(e)
+                            })
+                            # Continue with next file instead of aborting the whole process
+                            continue
+
+                # Write processing summary
+                summary = f"\nProcessing Summary:\n"
+                summary += f"Total files processed: {successful_files + failed_files}\n"
+                summary += f"Successfully processed: {successful_files}\n"
+                summary += f"Failed to process: {failed_files}\n"
+                
+                # Save detailed results
+                with open("processing_results.json", "w") as f:
+                    json.dump(processing_results, f, indent=4)
+                                
+        except Exception as e:
+            with open(log_file, "a") as log:
+                error_msg = f"Critical error in hierarchical indexing flow: {str(e)}"
+                # Optional: print to console as well for immediate visibility
+                print(error_msg)
+            raise Exception(f"Hierarchical indexing flow failed. See {log_file} for details.") from e
+        
+        # Return summary information about the process
+        return {
+            "status": "completed" if failed_files == 0 else "completed_with_errors",
+            "total_files": successful_files + failed_files,
+            "successful_files": successful_files,
+            "failed_files": failed_files,
+            "log_file": log_file
+        }
+
 
 def get_std_vector_search( connections_per_node:int = 4, 
                           neighbors_list_size: int = 400, 
@@ -2410,7 +2789,7 @@ class DocParsing:
         ordered_data = []
         for process_key, content in extracted_data_dict.items():
             print(f"\n   Processing section/process key: '{process_key}'")
-            if "Metadata" in process_key or not content.strip():
+            if "Metadata" in process_key or "unknown" in process_key.lower() or not content.strip():
                 print("Skipping metadata section or empty content.")
                 continue
 
@@ -2667,48 +3046,27 @@ class ProcessHandler:
         return core, detail
 
 class MultiProcessHandler:
-    def __init__(self, json_paths: List[str], client_core, client_detail, oai_client):
+    def __init__(self, dict_list: List[str], client_core, client_detail, service):
         """
-        Initializes the class with a list of JSON paths and necessary clients.
+        Initializes the class with a list of dictionaries and necessary clients.
         
         Sets up the handler to process multiple JSON files and upload them to Azure Search
         using the provided clients.
         
         Parameters:
-            json_paths: List of paths to JSON files to process
+            dict_list: List of dictionaries to process
             client_core: Azure Search client for the core index
             client_detail: Azure Search client for the detailed index
             oai_client: Azure OpenAI client for generating embeddings
         """
-        self.json_paths = json_paths
+        self.dict_list = dict_list
         self.client_core = client_core
         self.client_detail = client_detail
-        self.oai_client = oai_client
-
-    def get_all_files_in_directory(directory_path):
-        """
-        Returns a list of all file paths in a given directory, excluding 'Metadata' files.
-        
-        Args:
-            directory_path (str): Directory to scan for files
-            
-        Returns:
-            list: List of file paths found in the directory
-        """
-        print(f"Scanning directory for files: {directory_path}")
-        file_list = []
-        for root, _, files in os.walk(directory_path):
-            for file in files:
-                if "Metadata" not in file:
-                    file_path = os.path.join(root, file)
-                    file_list.append(file_path)
-                    print(f"Found file: {file_path}")
-        print(f"Total files found: {len(file_list)}")
-        return file_list
+        self.oai_client = service.get_AzureOpenAIClient(api_version="2024-05-01-preview")
     
     def process_documents(self) -> List[Dict]:
         """
-        Processes multiple JSON documents and returns a list of processed records for each document.
+        Processes multiple documents and returns a list of processed records for each document.
         
         Iterates through each JSON file path, verifies its existence, and uses the ProcessHandler
         to prepare core and detailed records for upload.
@@ -2722,23 +3080,20 @@ class MultiProcessHandler:
         """
         all_records = []
 
-        for json_path in self.json_paths:
-            if not os.path.exists(json_path):
-                print(f"Error: The file {json_path} does not exist.")
-                continue
+        for i in self.dict_list:
             try:
-                document_processor = ProcessHandler(json_path)
+                document_processor = ProcessHandler(provided_dict=i)
                 core_record, detailed_records = document_processor.prepare_for_upload()
                 all_records.append({
                     'core': core_record,
                     'detailed': detailed_records
                 })
             except Exception as e:
-                print(f"Error processing {json_path}: {e}")
+                print(f"Error processing {self.dict_list}: {e}")
 
         return all_records
     
-    def generate_embeddings(self, service: AIService, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
+    def generate_embeddings(self, client: AzureOpenAI, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
         """
         Generate embeddings for given texts.
         
@@ -2753,8 +3108,6 @@ class MultiProcessHandler:
         Returns:
             List of embedding vectors (each a list of floats) corresponding to the input texts
         """
-
-        client = service.get_AzureOpenAIClient(api_version="2024-05-01-preview")
 
         embeddings = []
         for text in texts:
@@ -2826,8 +3179,8 @@ class MultiProcessHandler:
 
                 
                 # Now upload the records to the respective Azure Search indexes.
-                response_core = client_core.upload_documents(documents=[record['core']])
-                response_detail = client_detail.upload_documents(documents=record['detailed'])
+                response_core = client_core.upload_rows(documents=[record['core']])
+                response_detail = client_detail.upload_rows(documents=record['detailed'])
                 print(f"Successfully uploaded records for {record['core'].get('process_name', 'Unknown')}")
         except Exception as e:
             print(f"Error uploading records: {e}")
