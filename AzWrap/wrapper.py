@@ -1405,6 +1405,27 @@ class SearchIndex:
         print(f"Successfully processed {succeeded_count}/{document_count} documents from  index '{index_name}'")
         return (succeeded_count, document_count)
 
+    def upload_rows( self, documents: List[Dict[str, Any]], index_name: Optional[str] = None ) -> List[azsd._generated.models.IndexingResult]:
+        """
+        Upload documents to an Azure AI Search index
+        
+        Args:
+            documents: List of documents to upload
+            index_name: Name of the target index. If None, the current index is used.
+        
+        Returns:
+            Number of successfully uploaded documents
+        """
+        if not index_name:
+            index_name = self.index_name
+        search_client = self.get_search_client(index_name)
+        
+        # Upload documents to the target index
+        result = search_client.upload_documents(documents=documents)
+        
+        # Return the number of successfully uploaded documents
+        return result
+    
     def copy_index_data( self, source_index_name: str, target_index_name: str, fields_to_copy: Optional[List[str]] = None, batch_size: int = 100) -> Tuple[int, int]:
         """
         Copy data from source index to target index, excluding the removed fields
