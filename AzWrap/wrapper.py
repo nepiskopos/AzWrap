@@ -474,33 +474,7 @@ class Container:
         """
         return self.get_blob_content(blob_properties.name)
     
-    def get_text_content(self, blob_name: str, encoding: str = 'utf-8') -> str:
-        """
-        Get the content of a text file blob as a string
         
-        Args:
-            blob_name: Name of the blob to retrieve
-            encoding: Text encoding to use (default: utf-8)
-            
-        Returns:
-            str: The text content of the blob
-            
-        Raises:
-            ValueError: If the blob cannot be found or accessed
-        """
-        try:
-            # Get the blob content as bytes
-            content_bytes = self.get_blob_content(blob_name)
-            
-            # Decode the content to string
-            text_content = content_bytes.decode(encoding)
-            
-            return text_content
-        except UnicodeDecodeError as e:
-            raise ValueError(f"Error decoding text content for blob {blob_name}: The '{encoding}' encoding is not correct for this file. {str(e)}")
-        except Exception as e:
-            raise ValueError(f"Error retrieving text content for blob {blob_name}: {str(e)}")
-    
     def get_docx_content(self, blob_name: str) -> str:
         """
         Get the content of a Word DOCX file as text

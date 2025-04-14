@@ -152,7 +152,7 @@ def main():
         logger.info(f"Reading content from file: {target_file}")
         
         # Use the process_blob_by_type method which handles DOCX files appropriately
-        docx_content = container.process_blob_by_type(target_file)
+        docx_content = container.get_docx_content(target_file)
         
         if not docx_content:
             logger.error("Failed to extract content from DOCX file")
@@ -210,16 +210,16 @@ def main():
         # Step 8: Upload document content to the index
         logger.info("Uploading document content to the search index")
         
-        # Create document to index
-        document = {
+        # Create documents to index --one List item per index row
+        document = [{
             "id": f"doc_{datetime.now().strftime('%Y%m%d%H%M%S')}",
             "content": docx_content,
             "filename": target_file,
             "timestamp": datetime.utcnow().isoformat() + 'Z'  # Adding Z to indicate UTC timezone
-        }
+        }]
         
         # Use the upload_documents method to add the document to the index
-        results = index.upload_documents([document])
+        results = index.upload_documents(document)
         
         # Check if upload was successful
         succeeded = sum(1 for r in results if r.succeeded)
@@ -248,6 +248,12 @@ def main():
             logger.info(f"Found document: {result['filename']}")
         
         logger.info("Search workflow demonstration completed successfully")
+
+    ## Step 1 create two indexes for core_df and detail_df
+
+    ## Step 2 create one funtions per column in the target index in Conteiner.get_docx_content()
+
+    ## Step 3 upload_documents to coresponding index
         
     except Exception as e:
         logger.error(f"Error in search workflow: {str(e)}")
