@@ -1847,7 +1847,7 @@ class SearchIndex:
         result = self.process_data_in_batches(index_name = source_index_name, transaction=copy_and_upload_documents)
         return result
 
-    def copy_index_structure( self, fields_to_copy: Optional[List[str]] = None, new_index_name: Optional[str] = None ) -> azsdim.SearchIndex:
+    def copy_index_structure(self, fields_to_copy: Optional[List[str]] = None, new_index_name: Optional[str] = None ) -> azsdim.SearchIndex:
         """
         Make a copy of an Azure AI Search index with a subset of fields.
         
