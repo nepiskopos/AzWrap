@@ -2164,19 +2164,6 @@ class SearchIndex:
             processed_results.append(processed_result)
         
         return processed_results    
-
-    def upload_documents(self, documents: List[Dict[str, Any]]) -> List[Any]:
-        """
-        Upload documents to the search index.
-        
-        Args:
-            documents: List of document dictionaries to upload
-            
-        Returns:
-            List of results for each document upload operation
-        """
-        search_client = self.get_search_client()
-        return search_client.upload_documents(documents)
     
 
 from openai import AzureOpenAI
