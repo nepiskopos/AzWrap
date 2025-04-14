@@ -1807,7 +1807,7 @@ class SearchIndex:
         # Return the number of successfully uploaded documents
         return result
     
-    def copy_index_data( self, source_index_name: str, target_index_name: str, fields_to_copy: Optional[List[str]] = None, batch_size: int = 100) -> Tuple[int, int]:
+    def copy_index_data(self, source_index_name: str, target_index_name: str, fields_to_copy: Optional[List[str]] = None, batch_size: int = 100) -> Tuple[int, int]:
         """
         Copy data from source index to target index, excluding the removed fields
         
