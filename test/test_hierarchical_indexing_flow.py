@@ -4,52 +4,53 @@ import os
 sys.path.append(os.path.abspath(".."))
 
 from dotenv import load_dotenv
-load_dotenv()
 
-from AzWrap.wrapper import (
-    Identity,
-    Subscription,
-    AIService
-)
+def main():
+    load_dotenv()
 
-identity = Identity(
-    tenant_id=os.getenv("AZURE_TENANT_ID"),
-    client_id=os.getenv("AZURE_CLIENT_ID"),
-    client_secret=os.getenv("AZURE_CLIENT_SECRET")
-)
+    from AzWrap.wrapper import (
+        Identity,
+        Subscription,
+        AIService
+    )
 
-subscription = identity.get_subscriptions()[0]
-subscription_id = subscription.subscription_id
+    identity = Identity(
+        tenant_id=os.getenv("AZURE_TENANT_ID"),
+        client_id=os.getenv("AZURE_CLIENT_ID"),
+        client_secret=os.getenv("AZURE_CLIENT_SECRET")
+    )
 
-sub = Subscription(identity= identity , subscription=subscription , subscription_id=subscription_id)
+    subscription = identity.get_subscriptions()[0]
+    subscription_id = subscription.subscription_id
 
-rg = sub.get_resource_group(os.getenv("RESOURCE_GROUP_NAME"))
-storage_accounts = sub.get_storage_accounts()
-account = storage_accounts[0]
-print("Storage account name: ", account.name)
+    sub = Subscription(identity=identity, subscription=subscription, subscription_id=subscription_id)
 
-StAc = rg.get_storage_account(account.name)
+    rg = sub.get_resource_group(os.getenv("RESOURCE_GROUP_NAME"))
+    storage_accounts = sub.get_storage_accounts()
+    account = storage_accounts[0]
+    print("Storage account name: ", account.name)
 
-cog_mgmt_client = sub.get_cognitive_client()
-ai_service_name = os.getenv("AI_SERVICE_ACCOUNT_NAME")
-account_details = next(
-            (acc for acc in cog_mgmt_client.accounts.list_by_resource_group(rg.azure_resource_group.name)
-             if acc.name == ai_service_name), None
-        )
-if not account_details:
-    raise ValueError(f"Azure OpenAI account '{ai_service_name}' not found in resource group '{rg}'.")
+    StAc = rg.get_storage_account(account.name)
 
-ai_service = AIService(rg, cog_mgmt_client, account_details)
-print("AI Service is: ", ai_service)
-aoai_client = ai_service.get_OpenAIClient(api_version='2024-05-01-preview')
-print("Azure OpenAI client is: ", aoai_client)
+    cog_mgmt_client = sub.get_cognitive_client()
+    ai_service_name = os.getenv("AI_SERVICE_ACCOUNT_NAME")
+    account_details = next(
+                (acc for acc in cog_mgmt_client.accounts.list_by_resource_group(rg.azure_resource_group.name)
+                 if acc.name == ai_service_name), None
+            )
+    if not account_details:
+        raise ValueError(f"Azure OpenAI account '{ai_service_name}' not found in resource group '{rg}'.")
 
-ai_search_name = os.getenv("AI_SEARCH_ACCOUNT_NAME")
-search_service = sub.get_search_service(service_name=ai_search_name)
+    ai_service = AIService(rg, cog_mgmt_client, account_details)
+    print("AI Service is: ", ai_service)
+    aoai_client = ai_service.get_OpenAIClient(api_version='2024-05-01-preview')
+    print("Azure OpenAI client is: ", aoai_client)
 
-container_name = os.getenv("AZURE_CONTAINER")
-container = StAc.get_container(container_name)
-folder_structure = container.get_folder_structure()
+    ai_search_name = os.getenv("AI_SEARCH_ACCOUNT_NAME")
+    search_service = sub.get_search_service(service_name=ai_search_name)
 
-# Run the flow
-search_service.run_hierarchical_indexing_flow()
+    # Run the flow
+    search_service.run_hierarchical_indexing_flow()
+
+if __name__ == "__main__":
+    main()

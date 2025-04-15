@@ -1096,11 +1096,6 @@ class SearchService:
                             parsing = DocParsing(doc, openai_client, format, "domain", folder, "gpt-4o-global-standard", file)
                             parsed = parsing.doc_to_json()
                             
-                            # Save parsed document
-                            parsed_file = f"parsed_{folder}_{file}.json"
-                            with open(parsed_file, "w") as f:
-                                json.dump(parsed, f, indent=4)
-
                             # Get indices
                             core_index = self.get_index(core_index_name)
                             detail_index = self.get_index(detail_index_name)
@@ -1109,11 +1104,6 @@ class SearchService:
                             processor = MultiProcessHandler(parsed, core_index, detail_index, openai_client)
                             records = processor.process_documents()
                             
-                            # Save processed records
-                            records_file = f"records_{folder}_{file}.json"
-                            with open(records_file, "w") as f:
-                                json.dump(records, f, indent=4)
-
                             # Upload to Azure Cognitive Search indices
                             upload_result = processor.upload_to_azure_index(records, core_index_name, detail_index_name)
                             
