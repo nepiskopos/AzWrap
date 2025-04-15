@@ -931,7 +931,6 @@ class SearchService:
         
         This method implements the indexing flow with error handling and logging.
         """
-        log_file = f"indexing_flow_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
         try:
                 # Load index template
                 try:
@@ -967,123 +966,45 @@ class SearchService:
 
                 # Define core index fields
                 try:
+                    analyzer_normalizer_config = {
+                        "analyzer_name": "el.lucene",
+                        "normalizer_name": "lowercase"
+                    }
+                    
+                    # Helper function to reduce repetition
+                    def create_field(field_name, field_type, **kwargs):
+                        # Determine which method to use based on parameters
+                        if kwargs.get("vector_search_dimensions"):
+                            method = self.add_search_field
+                        elif kwargs.get("searchable") and field_type == "String" and not kwargs.get("is_key"):
+                            method = self.add_searchable_field
+                        else:
+                            method = self.add_simple_field
+                        
+                        # Apply text search config to String fields if not overridden
+                        if field_type == "String" and kwargs.get("searchable") and "analyzer_name" not in kwargs:
+                            kwargs.update(analyzer_normalizer_config)
+                            
+                        return method(field_name=field_name, field_type=field_type, **kwargs)
+                    
+                    # Define all fields with their specific configurations
                     core_index_fields = [
-                        self.add_simple_field(
-                            field_name="process_id", 
-                            field_type="String", 
-                            searchable=True, 
-                            filterable=True, 
-                            retrievable=True, 
-                            is_key=True, 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="process_name", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="doc_name", 
-                            field_type="String",
-                            searchable=True, 
-                            retrievable=True, 
-                            filterable=True,
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="domain", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            filterable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="sub_domain", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            filterable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="functional_area", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene',
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="functional_subarea", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="process_group", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="process_subgroup", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="reference_documents", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="related_products", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="additional_information", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="non_llm_summary", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_search_field(
-                            field_name="embedding_summary",
-                            field_type="Collection(Edm.Single)",
-                            searchable=True,
-                            vector_search_dimensions=3072,
-                            vector_search_profile_name="vector-search-profile"
-                        )
-                    ]
+                        create_field("process_id", "String", searchable=True, filterable=True, retrievable=True, is_key=True),
+                        create_field("process_name", "String", searchable=True, retrievable=True),
+                        create_field("doc_name", "String", searchable=True, retrievable=True, filterable=True),
+                        create_field("domain", "String", searchable=True, retrievable=True, filterable=True),
+                        create_field("sub_domain", "String", searchable=True, retrievable=True, filterable=True),
+                        create_field("functional_area", "String", searchable=True, retrievable=True),
+                        create_field("functional_subarea", "String", searchable=True, retrievable=True),
+                        create_field("process_group", "String", searchable=True, retrievable=True),
+                        create_field("process_subgroup", "String", searchable=True, retrievable=True),
+                        create_field("reference_documents", "String", searchable=True, retrievable=True),
+                        create_field("related_products", "String", searchable=True, retrievable=True),
+                        create_field("additional_information", "String", searchable=True, retrievable=True),
+                        create_field("non_llm_summary", "String", searchable=True, retrievable=True),
+                        create_field("embedding_summary", "Collection(Edm.Single)", searchable=True,
+                                    vector_search_dimensions=3072, vector_search_profile_name="vector-search-profile")
+                    ] 
                 except Exception as e:
                     error_msg = f"Error defining core index fields: {str(e)}"
                     raise Exception(error_msg) from e
@@ -1091,77 +1012,17 @@ class SearchService:
                 # Define detail index fields
                 try:
                     detail_index_fields = [
-                        self.add_simple_field(
-                            field_name="id", 
-                            field_type="String", 
-                            searchable=True, 
-                            filterable=True, 
-                            retrievable=True, 
-                            is_key=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_simple_field(
-                            field_name="process_id", 
-                            field_type="String",
-                            searchable=True,
-                            filterable=True, 
-                            retrievable=True
-                        ),
-                        self.add_simple_field(
-                            field_name="step_number", 
-                            field_type="Int64",
-                            searchable=True,
-                            sortable=True,
-                            filterable=True, 
-                            retrievable=True
-                        ),
-                        self.add_searchable_field(
-                            field_name="step_name", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="step_content", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="documents_used", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="systems_used", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_search_field(
-                            field_name="embedding_title",
-                            field_type="Collection(Edm.Single)",
-                            searchable=True,
-                            vector_search_dimensions=3072,
-                            vector_search_profile_name="vector-search-profile"
-                        ),
-                        self.add_search_field(
-                            field_name="embedding_content",
-                            field_type="Collection(Edm.Single)",
-                            searchable=True,
-                            vector_search_dimensions=3072,
-                            vector_search_profile_name="vector-search-profile"
-                        )
+                        create_field("id", "String", searchable=True, filterable=True, retrievable=True, is_key=True),
+                        create_field("process_id", "String", searchable=True, filterable=True, retrievable=True),
+                        create_field("step_number", "Int64", searchable=True, sortable=True, filterable=True, retrievable=True),
+                        create_field("step_name", "String", searchable=True, retrievable=True),
+                        create_field("step_content", "String", searchable=True, retrievable=True),
+                        create_field("documents_used", "String", searchable=True, retrievable=True),
+                        create_field("systems_used", "String", searchable=True, retrievable=True),
+                        create_field("embedding_title", "Collection(Edm.Single)", searchable=True, 
+                                    vector_search_dimensions=3072, vector_search_profile_name="vector-search-profile"),
+                        create_field("embedding_content", "Collection(Edm.Single)", searchable=True, 
+                                    vector_search_dimensions=3072, vector_search_profile_name="vector-search-profile")
                     ]
                 except Exception as e:
                     error_msg = f"Error defining detail index fields: {str(e)}"
@@ -1213,6 +1074,7 @@ class SearchService:
                         raise ValueError(error_msg)
 
                     ai_service = AIService(self.resource_group, cog_mgmt_client, account_details)
+                    openai_client = ai_service.get_OpenAIClient(api_version="2024-05-01-preview")
                 except Exception as e:
                     error_msg = f"Error initializing AI service: {str(e)}"
                     raise Exception(error_msg) from e
@@ -1231,7 +1093,7 @@ class SearchService:
                             doc = Document(byte_stream)
 
                             # Parse document
-                            parsing = DocParsing(doc, ai_service, format, "domain", folder, "gpt-4o-global-standard", file)
+                            parsing = DocParsing(doc, openai_client, format, "domain", folder, "gpt-4o-global-standard", file)
                             parsed = parsing.doc_to_json()
                             
                             # Save parsed document
@@ -1244,7 +1106,7 @@ class SearchService:
                             detail_index = self.get_index(detail_index_name)
 
                             # Process document
-                            processor = MultiProcessHandler(parsed, core_index, detail_index, ai_service)
+                            processor = MultiProcessHandler(parsed, core_index, detail_index, openai_client)
                             records = processor.process_documents()
                             
                             # Save processed records
@@ -2180,16 +2042,7 @@ class AIService:
         self.resource_group = resource_group
         self.cognitive_client = cognitive_client
         self.azure_account = azure_Account
-    
-    def get_AzureOpenAIClient(self, api_version:str) -> "AzureOpenAI" :
-        keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
-        openai_client = AzureOpenAI(
-            api_key=keys.key1,
-            api_version=api_version,
-            azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
-        )
-        return openai_client
-    
+        
     def get_OpenAIClient(self, api_version:str) -> "OpenAIClient" :
         keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
         openai_client = AzureOpenAI(
@@ -2445,6 +2298,7 @@ class OpenAIClient:
                                 model: str, 
                                 temperature: float = 0.7, 
                                 max_tokens: int = 800,
+                                response_format: Dict[str, Any] = None,
                                 ) -> Dict[str, Any]:
         """
         Generate a chat completion using Azure OpenAI.
@@ -2463,7 +2317,8 @@ class OpenAIClient:
                 model=model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                response_format=response_format
             )
             return {
                 "content": response.choices[0].message.content,
@@ -2483,29 +2338,35 @@ from docx.text.paragraph import Paragraph
 from docx.table import Table
 
 class DocParsing:
-    def __init__(self, doc_instance, service: AIService, json_format: dict, domain: str, sub_domain: str, model_name: str, doc_name: str):
-        """
-        Initialize the DocParsing class.
+    """
+    Initialize the DocParsing class.
 
-        Parameters:
-            doc_instance: python-docx Document object to be parsed
-            client: Azure OpenAI client for AI processing
-            json_format: Template for the JSON structure
-            domain: Domain category for the document
-            sub_domain: Sub-domain category for the document
-            model_name: Name of the AI model to use
-            doc_name: Name of the document being processed (without extension)
-        """
+    Parameters:
+        doc_instance: python-docx Document object to be parsed
+        openai_client: Azure OpenAI client for AI processing
+        json_format: Template for the JSON structure
+        domain: Domain category for the document
+        sub_domain: Sub-domain category for the document
+        model_name: Name of the AI model to use
+        doc_name: Name of the document being processed (without extension)
+    """
+    doc_instance: Document
+    openai_client: OpenAIClient
+    json_format: Dict[str, Any]
+    domain: str
+    sub_domain: str
+    model_name: str
+    doc_name: str
 
+    def __init__(self, doc_instance: Document, openai_client: OpenAIClient, json_format: Dict[str, Any], domain: str, sub_domain: str, model_name: str, doc_name: str):
         print(f"Initializing DocParsing for document: {doc_name}")
-        self.service = service
-        self.client = service.get_AzureOpenAIClient(api_version="2024-05-01-preview")
-        self.doc = doc_instance
-        self.format = json_format # Use the passed dictionary directly
+        self.doc_instance = doc_instance
+        self.openai_client = openai_client
+        self.json_format = json_format
         self.domain = domain
-        self.model_name = model_name
         self.sub_domain = sub_domain
-        self.doc_name = doc_name # Store the name without extension
+        self.model_name = model_name
+        self.doc_name = doc_name
     
     def _get_section_header_lines(self, section):
         """Helper to extract text lines from a section's header."""
@@ -2628,11 +2489,11 @@ class DocParsing:
         section_headers = set()
         first_meaningful_header = None
 
-        if not self.doc.sections:
+        if not self.doc_instance.sections:
             print("Document has no sections.")
             return True, self.doc_name # Treat as single process with doc name as title
 
-        for section_index, section in enumerate(self.doc.sections):
+        for section_index, section in enumerate(self.doc_instance.sections):
             header_title = self._extract_header_info(section)
             if header_title and header_title != "Metadata" and header_title != "Unknown Header":
                 section_headers.add(header_title)
@@ -2666,7 +2527,7 @@ class DocParsing:
             header_key = f"{safe_title}_single_process"
             print(f"Building content for single process: '{header_key}'")
             data_dict[header_key] = []
-            for _, block in self._iterate_block_items_with_section(self.doc):
+            for _, block in self._iterate_block_items_with_section(self.doc_instance):
                 if isinstance(block, Paragraph):
                     text = block.text.strip()
                     if text: data_dict[header_key].append(text)
@@ -2679,14 +2540,14 @@ class DocParsing:
             current_header_key = None
             current_section_content = []
 
-            for section_index, block in self._iterate_block_items_with_section(self.doc):
+            for section_index, block in self._iterate_block_items_with_section(self.doc_instance):
                 if section_index > last_section_index:
                     if current_header_key and current_section_content:
                          data_dict[current_header_key] = "\n".join(current_section_content) # Join previous section
                          print(f"Finalized content for section {last_section_index}: '{current_header_key}' ({len(current_section_content)} blocks)")
 
-                    if section_index < len(self.doc.sections):
-                         header_title = self._extract_header_info(self.doc.sections[section_index])
+                    if section_index < len(self.doc_instance.sections):
+                         header_title = self._extract_header_info(self.doc_instance.sections[section_index])
                          if not header_title or header_title == "Metadata":
                              header_title = f"Unknown_Section_{section_index}"
                          safe_header = re.sub(r'[\\/*?:"<>|]', '_', header_title)
@@ -2696,7 +2557,7 @@ class DocParsing:
                               data_dict[current_header_key] = []
                          current_section_content = [] # Reset buffer
                     else:
-                         print(f"Warning: Block referenced section_index {section_index} > section count {len(self.doc.sections)}. Using last header '{current_header_key}'.")
+                         print(f"Warning: Block referenced section_index {section_index} > section count {len(self.doc_instance.sections)}. Using last header '{current_header_key}'.")
 
                     last_section_index = section_index
 
@@ -2738,7 +2599,7 @@ class DocParsing:
             str: JSON string containing the parsed content, or None on failure.
         """
         print(f"Requesting AI to parse content for: '{process_identifier}' using model '{self.model_name}'...")
-        format_str = json.dumps(self.format, indent=4, ensure_ascii=False)
+        format_str = json.dumps(self.json_format, indent=4, ensure_ascii=False)
 
         # Prompt emphasizing extraction, structure, and JSON-only output
         prompt = (
@@ -2753,7 +2614,7 @@ class DocParsing:
          )
 
         try:
-            if not self.client:
+            if not self.openai_client:
                  print("Error: Azure OpenAI client is not initialized.")
                  return None
 
@@ -2762,14 +2623,15 @@ class DocParsing:
                 {"role": "user", "content": f"Document Source Name: {self.doc_name}\nProcess/Section Identifier: {process_identifier}\n\nContent to Parse:\n---\n{content_to_parse}\n---"}
             ]
 
-            output_llm = self.client.chat.completions.create(
+            output_llm = self.openai_client.generate_chat_completion(
                 model=self.model_name,
                 messages=messages,
                 temperature=0,
+                max_tokens=None,
                 response_format={"type": "json_object"} # Request JSON output
             )
 
-            ai_response_content = output_llm.choices[0].message.content
+            ai_response_content = output_llm["content"]
             print(f"AI response received ({len(ai_response_content)} chars).")
 
             # Basic validation: Check if it looks like JSON
@@ -2858,19 +2720,28 @@ class DocParsing:
 import hashlib
 from typing import List, Dict
 
-class ProcessHandler:
-    def __init__(self, provided_dict):
-        """
-        Initializes the class with a process dictionary.
-        
-        Loads the dictionary containing process information.
-        Prints information about the loading process and the process name.
-        
-        Parameters:
-            provided_dict: The dictionary from process information
-        """
-        self.provided_dict = provided_dict
+class MultiProcessHandler:
+    """
+    Sets up the handler to process multiple JSON files and upload them to Azure Search
+    using the provided clients.
+    
+    Parameters:
+        dict_list: List of dictionaries to process
+        index_client_core: Azure SearchIndex client for the core index
+        index_client_detail: Azure SearchIndex client for the detailed index
+        openai_client: Azure OpenAI client for generating embeddings
+    """
+    dict_list: List[Dict]
+    index_client_core: SearchIndex
+    index_client_detail: SearchIndex
+    openai_client: OpenAIClient
 
+    def __init__(self, dict_list: List[str], index_client_core: SearchIndex, index_client_detail: SearchIndex, openai_client: OpenAIClient):
+        self.dict_list = dict_list
+        self.index_client_core = index_client_core
+        self.index_client_detail = index_client_detail
+        self.openai_client = openai_client
+    
     def generate_process_id(self, process_name: str, short_description: str) -> int:
         """
         Generate a unique integer ID for the process based on its name and short description.
@@ -2928,7 +2799,7 @@ class ProcessHandler:
         print(f"Generated Step ID: {step_id}")
         return step_id
 
-    def prepare_core_df_record(self, process_id: int) -> Dict:
+    def prepare_core_df_record(self, process_id: int, provided_dict:Dict) -> Dict:
         """
         Prepare record for core_df index.
         
@@ -2937,6 +2808,7 @@ class ProcessHandler:
         
         Parameters:
             process_id: The unique ID for this process
+            provided_dict: The process' dictionary
             
         Returns:
             Dictionary containing the core process information formatted for database storage
@@ -2945,41 +2817,41 @@ class ProcessHandler:
         
         # Prepare steps information
         steps_info = []
-        for step in self.provided_dict.get('steps', []):
+        for step in provided_dict.get('steps', []):
             step_text = f"Βήμα {step['step_number']} {step['step_name']}"
             steps_info.append(step_text)
 
         # Prepare summary
         summary_parts = [
-            "Εισαγωγή:", self.provided_dict.get('introduction', ''),
-            "Σύντομη περιγραφή:", self.provided_dict.get('short_description', ''),
+            "Εισαγωγή:", provided_dict.get('introduction', ''),
+            "Σύντομη περιγραφή:", provided_dict.get('short_description', ''),
             "Αναλυτικά βήματα:", "\n".join(steps_info),
-            "Οικογένεια προιόντων:", ", ".join(self.provided_dict.get('related_products', [])),
-            "Έγγραφα αναφοράς:", ", ".join(self.provided_dict.get('reference_documents', []))
+            "Οικογένεια προιόντων:", ", ".join(provided_dict.get('related_products', [])),
+            "Έγγραφα αναφοράς:", ", ".join(provided_dict.get('reference_documents', []))
         ]
         non_llm_summary = "\n\n".join(summary_parts)
 
         # Prepare core record
         core_record = {
             'process_id': process_id,
-            'process_name': self.provided_dict.get('process_name', ''),
-            'doc_name': self.provided_dict.get('doc_name', '').split('.')[0],
-            'domain': self.provided_dict.get('domain', ''),
-            'sub_domain': self.provided_dict.get('subdomain', ''),
-            'functional_area': self.provided_dict.get('functional_area', ''),
-            'functional_subarea': self.provided_dict.get('functional_subarea', ''),
-            'process_group': self.provided_dict.get('process_group', ''),
-            'process_subgroup': self.provided_dict.get('process_subgroup', ''),
-            'reference_documents': ', '.join(self.provided_dict.get('reference_documents', [])),
-            'related_products': ', '.join(self.provided_dict.get('related_products', [])),
-            'additional_information': self.provided_dict.get('additional_information', ''),
+            'process_name': provided_dict.get('process_name', ''),
+            'doc_name': provided_dict.get('doc_name', '').split('.')[0],
+            'domain': provided_dict.get('domain', ''),
+            'sub_domain': provided_dict.get('subdomain', ''),
+            'functional_area': provided_dict.get('functional_area', ''),
+            'functional_subarea': provided_dict.get('functional_subarea', ''),
+            'process_group': provided_dict.get('process_group', ''),
+            'process_subgroup': provided_dict.get('process_subgroup', ''),
+            'reference_documents': ', '.join(provided_dict.get('reference_documents', [])),
+            'related_products': ', '.join(provided_dict.get('related_products', [])),
+            'additional_information': provided_dict.get('additional_information', ''),
             'non_llm_summary': non_llm_summary.strip()
         }
 
         print("Core DataFrame Record prepared successfully")
         return core_record
 
-    def prepare_detailed_df_records(self, process_id: int) -> List[Dict]:
+    def prepare_detailed_df_records(self, process_id: int, provided_dict:Dict) -> List[Dict]:
         """
         Prepare records for detailed_df index.
         
@@ -2988,6 +2860,7 @@ class ProcessHandler:
         
         Parameters:
             process_id: The unique ID for the parent process
+            provided_dict: The process' dictionary
             
         Returns:
             List of dictionaries containing detailed step information formatted for database storage
@@ -2996,16 +2869,16 @@ class ProcessHandler:
         detailed_records = []
 
         # Generate Process ID
-        process_name = self.provided_dict.get('process_name', '')
-        short_description = self.provided_dict.get('short_description', '')
+        process_name = provided_dict.get('process_name', '')
+        short_description = provided_dict.get('short_description', '')
         process_id = self.generate_process_id(process_name, short_description)
 
         # Add Introduction (step 0)
         intro_content = (
-            f"Εισαγωγή:\n{self.provided_dict.get('introduction', '')}\n\n"
-            f"Σύντομη περιγραφή:\n{self.provided_dict.get('short_description', '')}\n\n"
-            f"Οικογένεια προιόντων:\n{', '.join(self.provided_dict.get('related_products', []))}\n\n"
-            f"Έγγραφα αναφοράς:\n{', '.join(self.provided_dict.get('reference_documents', []))}"
+            f"Εισαγωγή:\n{provided_dict.get('introduction', '')}\n\n"
+            f"Σύντομη περιγραφή:\n{provided_dict.get('short_description', '')}\n\n"
+            f"Οικογένεια προιόντων:\n{', '.join(provided_dict.get('related_products', []))}\n\n"
+            f"Έγγραφα αναφοράς:\n{', '.join(provided_dict.get('reference_documents', []))}"
         )
         
         intro_record = {
@@ -3020,8 +2893,8 @@ class ProcessHandler:
         detailed_records.append(intro_record)
 
         # Add regular steps
-        print(f"Total Steps: {len(self.provided_dict.get('steps', []))}")
-        for step in self.provided_dict.get('steps', []):
+        print(f"Total Steps: {len(provided_dict.get('steps', []))}")
+        for step in provided_dict.get('steps', []):
             step_content = step.get('step_description', '')
             record = {
                 'id': self.generate_step_id(process_name, step['step_name'], step_content),
@@ -3038,12 +2911,15 @@ class ProcessHandler:
         print("Detailed DataFrame Records prepared successfully")
         return detailed_records
 
-    def prepare_for_upload(self) -> List[Dict]:
+    def prepare_for_upload(self, provided_dict) -> List[Dict]:
         """
-        Prepare all records for upload from the JSON data.
+        Prepare all records for upload.
         
         Coordinates the generation of process IDs and the preparation
         of both core and detailed records for database upload.
+
+        Parameters:
+            provided_dict: The process' dictionary
         
         Returns:
             Tuple containing the core record dictionary and a list of detailed record dictionaries
@@ -3051,70 +2927,24 @@ class ProcessHandler:
         print("Preparing records for upload")
         
         # Prepare core record
-        process_name = self.provided_dict.get('process_name', '')
-        short_description = self.provided_dict.get('short_description', '')
+        process_name = provided_dict.get('process_name', '')
+        short_description = provided_dict.get('short_description', '')
         process_id = self.generate_process_id(process_name, short_description)
-        core_record = self.prepare_core_df_record(process_id)
+        core_record = self.prepare_core_df_record(process_id, provided_dict)
 
         # Prepare detailed records
-        detailed_records = self.prepare_detailed_df_records(process_id)
+        detailed_records = self.prepare_detailed_df_records(process_id, provided_dict)
 
         print("Upload preparation completed")
         # Combine the core record with the detailed records
         return core_record, detailed_records
-
-    # Example usage function with enhanced logging
-    def process_dict_for_upload(provided_dict: Dict) -> List[Dict]:
-        '''
-        Process a Dictionary containing process data and prepare it for database upload.
-        
-        Creates a ProcessHandler instance to handle the JSON file,
-        then prepares both core and detailed records for upload.
-        
-        Parameters:
-            provided_dict: The process' dictionary 
-            
-        Returns:
-            Tuple containing the core record dictionary and a list of detailed record dictionaries
-        '''
-        document_processor = ProcessHandler(provided_dict)
-        core, detail = document_processor.prepare_for_upload()
-        
-        print("\nCore Record Summary:")
-        print(f"Process Name: {core.get('process_name', 'N/A')}")
-        print(f"Domain: {core.get('domain', 'N/A')}")
-        print(f"Sub-domain: {core.get('sub_domain', 'N/A')}")
-        
-        print(f"\nDetailed Records:")
-        print(f"Total Records: {len(detail)}")
-        
-        return core, detail
-
-class MultiProcessHandler:
-    def __init__(self, dict_list: List[str], client_core, client_detail, service):
-        """
-        Initializes the class with a list of dictionaries and necessary clients.
-        
-        Sets up the handler to process multiple JSON files and upload them to Azure Search
-        using the provided clients.
-        
-        Parameters:
-            dict_list: List of dictionaries to process
-            client_core: Azure Search client for the core index
-            client_detail: Azure Search client for the detailed index
-            oai_client: Azure OpenAI client for generating embeddings
-        """
-        self.dict_list = dict_list
-        self.client_core = client_core
-        self.client_detail = client_detail
-        self.oai_client = service.get_AzureOpenAIClient(api_version="2024-05-01-preview")
     
     def process_documents(self) -> List[Dict]:
         """
         Processes multiple documents and returns a list of processed records for each document.
         
-        Iterates through each JSON file path, verifies its existence, and uses the ProcessHandler
-        to prepare core and detailed records for upload.
+        Iterates through each document and uses the prepare_for_upload method
+        to prepare the core and detailed records for upload.
         
         Returns:
             List of dictionaries, each containing 'core' and 'detailed' records for a document
@@ -3127,8 +2957,7 @@ class MultiProcessHandler:
 
         for i in self.dict_list:
             try:
-                document_processor = ProcessHandler(provided_dict=i)
-                core_record, detailed_records = document_processor.prepare_for_upload()
+                core_record, detailed_records = self.prepare_for_upload(i)
                 all_records.append({
                     'core': core_record,
                     'detailed': detailed_records
@@ -3138,15 +2967,15 @@ class MultiProcessHandler:
 
         return all_records
     
-    def generate_embeddings(self, client: AzureOpenAI, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
+    def get_embeddings(self, openai_client: OpenAIClient, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
         """
-        Generate embeddings for given texts.
+        Handle embeddings for given texts.
         
-        Creates vector embeddings for each text string using the Azure OpenAI embeddings API.
+        Gets vector embeddings for each text string using the OpenAIClient.
         Returns empty lists for any texts that fail to process or are empty.
         
         Parameters:
-            client: Azure OpenAI client instance
+            openai_client: OpenAIClient instance
             texts: List of text strings to generate embeddings for
             model: Name of the embedding model to use (default: 'text-embedding-3-large')
         
@@ -3158,7 +2987,7 @@ class MultiProcessHandler:
         for text in texts:
             if text:
                 try:
-                    embedding = client.embeddings.create(input=text, model=model).data[0].embedding
+                    embedding = openai_client.generate_embeddings(input=text, model=model)
                     embeddings.append(embedding)
                 except Exception as e:
                     embeddings.append([])
@@ -3185,12 +3014,11 @@ class MultiProcessHandler:
             and handles any errors that occur during the upload process.
             
         Results:
-            Records are uploaded to Azure Search if successful
-            Error messages are printed to console if upload fails
+            Records are uploaded to Azure Search.
         """
         
-        client_core = self.client_core
-        client_detail = self.client_detail
+        index_client_core = self.index_client_core
+        index_client_detail = self.index_client_detail
 
         oai_client = self.oai_client
         
@@ -3199,7 +3027,7 @@ class MultiProcessHandler:
                 # For the core record, generate an embedding for 'non_llm_summary' if it exists.
                 if 'non_llm_summary' in record['core']:
                     summary_text = record['core']['non_llm_summary']
-                    embeddings = self.generate_embeddings(oai_client, [summary_text])
+                    embeddings = self.get_embeddings(oai_client, [summary_text])
                     if embeddings and len(embeddings) > 0:
                         # Assign the embedding vector (list of numbers) directly
                         record['core']['embedding_summary'] = embeddings[0]
@@ -3210,11 +3038,11 @@ class MultiProcessHandler:
                     if 'id' in step:
                         step['id'] = str(step['id'])
                     if 'step_name' in step:
-                        name_embeddings = self.generate_embeddings(oai_client, [step['step_name']])
+                        name_embeddings = self.get_embeddings(oai_client, [step['step_name']])
                         if name_embeddings and len(name_embeddings) > 0:
                             step['embedding_title'] = name_embeddings[0]
                     if 'step_content' in step:
-                        content_embeddings = self.generate_embeddings(oai_client, [step['step_content']])
+                        content_embeddings = self.get_embeddings(oai_client, [step['step_content']])
                         if content_embeddings and len(content_embeddings) > 0:
                             step['embedding_content'] = content_embeddings[0]
                 
@@ -3224,8 +3052,8 @@ class MultiProcessHandler:
 
                 
                 # Now upload the records to the respective Azure Search indexes.
-                response_core = client_core.upload_rows(documents=[record['core']])
-                response_detail = client_detail.upload_rows(documents=record['detailed'])
+                response_core = index_client_core.upload_rows(documents=[record['core']])
+                response_detail = index_client_detail.upload_rows(documents=record['detailed'])
                 print(f"Successfully uploaded records for {record['core'].get('process_name', 'Unknown')}")
         except Exception as e:
             print(f"Error uploading records: {e}")
