@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azwrap"
-version = "0.1.3.0"
+version = "0.1.3"
 description = "Azure deployment wrapper"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,10 +36,10 @@ dependencies = [
 ]
 
 [project.scripts]
-azwrap = "AzWrap.main:main"
+azwrap = "azwrap.main:main"
 
 [tool.setuptools]
-packages = ["AzWrap"]
+packages = ["azwrap"]
 
 [dependency-groups]
 dev = [
