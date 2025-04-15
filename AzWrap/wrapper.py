@@ -1145,19 +1145,14 @@ class SearchService:
                     json.dump(processing_results, f, indent=4)
                                 
         except Exception as e:
-            with open(log_file, "a") as log:
-                error_msg = f"Critical error in hierarchical indexing flow: {str(e)}"
-                # Optional: print to console as well for immediate visibility
-                print(error_msg)
-            raise Exception(f"Hierarchical indexing flow failed. See {log_file} for details.") from e
+            raise Exception(f"Hierarchical indexing flow failed.") from e
         
         # Return summary information about the process
         return {
             "status": "completed" if failed_files == 0 else "completed_with_errors",
             "total_files": successful_files + failed_files,
             "successful_files": successful_files,
-            "failed_files": failed_files,
-            "log_file": log_file
+            "failed_files": failed_files
         }
 
 
