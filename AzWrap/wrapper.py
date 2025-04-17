@@ -749,7 +749,312 @@ from azure.search.documents.indexes import SearchIndexerClient
 from azure.core.credentials import AzureKeyCredential
 from docx import Document
 from io import BytesIO
-from datetime import datetime
+
+from openai import AzureOpenAI
+class AIService:
+    cognitive_client: CognitiveServicesManagementClient
+    azure_account: azcsm.Account
+    resource_group: ResourceGroup
+    
+    
+    def __init__(self, 
+                 resource_group: ResourceGroup,
+                 cognitive_client: CognitiveServicesManagementClient,
+                 azure_Account: azcsm.Account):
+        self.resource_group = resource_group
+        self.cognitive_client = cognitive_client
+        self.azure_account = azure_Account
+        
+    def get_OpenAIClient(self, api_version:str) -> "OpenAIClient" :
+        keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
+        openai_client = AzureOpenAI(
+            api_key=keys.key1,
+            api_version=api_version,
+            azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
+        )
+        return OpenAIClient(self, openai_client) 
+
+    def get_models(self, azure_location: str = None) -> List[azcsm.Model]:
+        if (azure_location is None): 
+            azure_location = self.resource_group.azure_resource_group.location
+        models_list = self.cognitive_client.models.list(azure_location)
+        models = [model for model in models_list]
+        return models 
+
+    @staticmethod
+    def get_model_details(model: azcsm.Model) -> Dict[str, Any]:
+        """
+        Get details for a specific model.
+        
+        Args:
+            model_id: The model to be processed
+            
+        Returns:
+            Dictionary with model details
+        """
+        try:
+            info =  {
+                "kind": model.kind,
+                "name": model.model.name,
+                "format": model.model.format,
+                "version": model.model.version,
+                "sju_name": model.sku_name,
+            }
+            return info
+        except Exception as e:
+            print(f"Error getting model '{model.model.name}': {str(e)}")
+            return {}
+
+    def get_deployments(self) -> List[azcsm.Deployment]:
+        try:
+            deployments = list(self.cognitive_client.deployments.list(self.resource_group.get_name(), self.azure_account.name))
+            
+            result = [ deployment for deployment in deployments ]
+            return result
+        except Exception as e:
+            print(f"Error listing deployments: {str(e)}")
+            return []
+        
+    def get_deployment(self, deployment_name:str) -> azcsm.Deployment : 
+            deployment = self.cognitive_client.deployments.get( resource_group_name=self.resource_group.get_name(), account_name=self.azure_account.name, deployment_name=deployment_name )        
+            return deployment
+
+    @staticmethod        
+    def get_deployment_details(deployment: azcsm.Deployment) -> Dict[str, Any]:
+        """
+        Get details for a specific deployment.
+        
+        Args:
+            deployment: The deployment
+            
+        Returns:
+            Dictionary with deployment details
+        """
+        try:
+            # Handle missing properties safely
+            deployment_info = {
+                "name": deployment.name if hasattr(deployment, 'name') else "name not found",
+                "status": "unknown"
+            }
+            # Add properties only if they exist
+            if hasattr(deployment, 'properties'):
+                props = deployment.properties
+                if hasattr(props, 'model'):
+                    deployment_info["model"] = props.model
+                if hasattr(props, 'provisioning_state'):
+                    deployment_info["status"] = props.provisioning_state
+                # Handle scale settings if they exist
+                if hasattr(props, 'scale_settings') and props.scale_settings is not None:
+                    scale_settings = {}
+                    if hasattr(props.scale_settings, 'scale_type'):
+                        scale_settings["scale_type"] = props.scale_settings.scale_type
+                    if hasattr(props.scale_settings, 'capacity'):
+                        scale_settings["capacity"] = props.scale_settings.capacity
+                    deployment_info["scale_settings"] = scale_settings
+                # Add timestamps if they exist
+                if hasattr(props, 'created_at'):
+                    deployment_info["created_at"] = props.created_at
+                if hasattr(props, 'last_modified'):
+                    deployment_info["last_modified"] = props.last_modified
+            return deployment_info
+            
+        except Exception as e:
+            print(f"Error getting deployment '{deployment.name}': {str(e)}")
+            return {}
+
+    def create_deployment(self, 
+                         deployment_name: str, 
+                         model_name: str, 
+                         model_version:str = None,
+                         sku_name: str = "Standard",
+                         capacity: int = 1) -> Union[azcsm.Deployment, Dict[str, str]]:
+        """
+        Create a new model deployment in Azure OpenAI.
+        
+        Args:
+            deployment_name: Name for the new deployment
+            model: Base model name (e.g., 'gpt-4', 'text-embedding-ada-002')
+            capacity: Number of tokens per minute in millions (TPM)
+            scale_type: Scaling type (Standard, Manual)
+            
+        Returns:
+            the Deployment when prepared
+        """
+
+        try:
+            if model_version:
+                model = azcsm.Model(name=model_name, version=model_version)
+            else:
+                model = azcsm.Model(name=model_name)
+
+            deployment_properties = azcsm.DeploymentProperties(model=model)
+            
+            # Create SKU configuration
+            sku = azcsm.Sku(name=sku_name, capacity=capacity)
+
+            # properties = azcsm.DeploymentProperties(
+
+            #     model=model,
+            #     scale_settings=azcsm.DeploymentScaleSettings(
+            #         scale_type=scale_type,
+            #         capacity=capacity
+            #     ),
+            #     rai_policy_name="Microsoft.Default"
+            # )
+            poller = self.cognitive_client.deployments.begin_create_or_update(
+                resource_group_name=self.resource_group.get_name(),
+                account_name=self.azure_account.name,
+                deployment_name=deployment_name,
+                deployment=None, 
+                parameters = { 
+                    "properties": deployment_properties,
+                    "sku": sku
+                }
+            )
+            deployment: azcsm.Deployment = poller.result()
+            return deployment
+            
+        except Exception as e:
+            print(f"Error creating deployment '{deployment_name}': {str(e)}")
+            return {"error": str(e)}
+
+    def delete_deployment(self, deployment_name: str) -> bool:
+        """
+        Delete a model deployment in Azure OpenAI.
+        
+        Args:
+            deployment_name: Name of the deployment to delete
+            
+        Returns:
+            Boolean indicating success or failure
+        """
+        try:
+            # Start the delete operation
+            poller = self.cognitive_client.deployments.begin_delete(
+                resource_group_name=self.resource_group.get_name(),
+                account_name=self.azure_account.name,
+                deployment_name=deployment_name
+            )
+            
+            # Wait for the operation to complete
+            result = poller.result()
+
+            print(f"Successfully deleted deployment '{deployment_name}'")
+            return True
+        except Exception as e:
+            print(f"Error deleting deployment '{deployment_name}': {str(e)}")
+            return False
+
+    def update_deployment(self, 
+                         deployment_name: str, 
+                         sku_name: str = "Standard",
+                         capacity: int = 1) -> Union[azcsm.Deployment, Dict[str, str]]:
+        """
+        Update an existing model deployment in Azure OpenAI.
+        
+        Args:
+            deployment_name: Name of the deployment to update
+            capacity: New capacity value (optional)
+            scale_type: New scale type (optional)
+            
+        Returns:
+            Dictionary with deployment details
+        """
+        try:
+            deployment = self.get_deployment(deployment_name)
+
+            model_props = deployment.properties.model
+            model = azcsm.Model(
+                # If the model is stored as a complex object, preserve its name/version
+                name=model_props.name if hasattr(model_props, 'name') else model_props,
+                version=model_props.version if hasattr(model_props, 'version') else None
+            )            
+            updated_sku = azcsm.Sku(name=sku_name, capacity=capacity)
+
+            deployment_properties = azcsm.DeploymentProperties(model=model)
+
+            poller = self.cognitive_client.deployments.begin_create_or_update(
+                self.resource_group.get_name(),
+                self.azure_account.name,
+                deployment_name,
+                parameters={
+                    "properties": deployment_properties,
+                    "sku": updated_sku
+                }
+            )            
+            deployment = poller.result()
+            return deployment
+        except Exception as e:
+            print(f"Error updating deployment '{deployment_name}': {str(e)}")
+            return {"error": str(e)}
+
+class OpenAIClient:
+    ai_service: AIService 
+    openai_client: AzureOpenAI
+
+    def __init__(self, ai_service: AIService, openai_client: AzureOpenAI):
+        self.ai_service = ai_service
+        self.openai_client = openai_client
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def generate_embeddings(self, text: str, model: str = "text-embedding-3-large") -> List[float]:
+        """
+        Generate embeddings for text using Azure OpenAI.
+        
+        Args:
+            text: The text to generate embeddings for
+            model: The embedding model to use
+            
+        Returns:
+            List of float values representing the embedding vector
+        """
+        try:
+            response = self.openai_client.embeddings.create(input=text, model=model)
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"Error generating embeddings: {str(e)}")
+            raise e
+    
+    def generate_chat_completion(self, 
+                                messages: List[Dict[str, str]], 
+                                model: str, 
+                                temperature: float = 0.7, 
+                                max_tokens: int = 800,
+                                response_format: Dict[str, Any] = None,
+                                ) -> Dict[str, Any]:
+        """
+        Generate a chat completion using Azure OpenAI.
+        
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'
+            model: The deployment name of the model
+            temperature: Temperature for generation (0-1)
+            max_tokens: Maximum number of tokens to generate
+            
+        Returns:
+            Chat completion response
+        """
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format=response_format
+            )
+            return {
+                "content": response.choices[0].message.content,
+                "finish_reason": response.choices[0].finish_reason,
+                "usage": {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+            }
+        except Exception as e:
+            print(f"Error generating chat completion: {str(e)}")
+            return {"error": str(e)}
+
 class SearchService:
     search_service: azsrm.SearchService
     subscription: Subscription
@@ -925,380 +1230,6 @@ class SearchService:
         """
         return SearchIndexerManager(self)
     
-    def run_hierarchical_indexing_flow(self):
-        """
-        Run the hierarchical indexing flow.
-        
-        This method implements the indexing flow with error handling and logging.
-        """
-        log_file = f"indexing_flow_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        try:
-                # Load index template
-                try:
-                    with open(os.getenv("INDEX_TEMPLATE_PATH"), "r") as f:
-                        format = f.read()
-                except Exception as e:
-                    error_msg = f"Error loading index template: {str(e)}"
-                    raise Exception(error_msg) from e
-
-                # Configure semantic and vector search settings
-                try:
-                    semantic_config = {
-                        "title_field": "process_name",
-                        "content_fields": ["header_content"],
-                        "keyword_fields": ["domain"],
-                        "semantic_config_name": "main-data-test-semantic-config"
-                    }
-
-                    vector_search_config = {
-                        "algorithm_name": "vector-config",
-                        "vector_search_profile_name": "vector-search-profile",
-                        "metric": "cosine"
-                    }
-                    
-                    vector_search = get_exhaustive_KNN_vector_search(
-                        vector_search_config['algorithm_name'], 
-                        vector_search_config['vector_search_profile_name'], 
-                        vector_search_config['metric']
-                    )
-                except Exception as e:
-                    error_msg = f"Error configuring search settings: {str(e)}"
-                    raise Exception(error_msg) from e
-
-                # Define core index fields
-                try:
-                    core_index_fields = [
-                        self.add_simple_field(
-                            field_name="process_id", 
-                            field_type="String", 
-                            searchable=True, 
-                            filterable=True, 
-                            retrievable=True, 
-                            is_key=True, 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="process_name", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="doc_name", 
-                            field_type="String",
-                            searchable=True, 
-                            retrievable=True, 
-                            filterable=True,
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="domain", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            filterable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="sub_domain", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            filterable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="functional_area", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene',
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="functional_subarea", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="process_group", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="process_subgroup", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="reference_documents", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="related_products", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="additional_information", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="non_llm_summary", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_search_field(
-                            field_name="embedding_summary",
-                            field_type="Collection(Edm.Single)",
-                            searchable=True,
-                            vector_search_dimensions=3072,
-                            vector_search_profile_name="vector-search-profile"
-                        )
-                    ]
-                except Exception as e:
-                    error_msg = f"Error defining core index fields: {str(e)}"
-                    raise Exception(error_msg) from e
-
-                # Define detail index fields
-                try:
-                    detail_index_fields = [
-                        self.add_simple_field(
-                            field_name="id", 
-                            field_type="String", 
-                            searchable=True, 
-                            filterable=True, 
-                            retrievable=True, 
-                            is_key=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_simple_field(
-                            field_name="process_id", 
-                            field_type="String",
-                            searchable=True,
-                            filterable=True, 
-                            retrievable=True
-                        ),
-                        self.add_simple_field(
-                            field_name="step_number", 
-                            field_type="Int64",
-                            searchable=True,
-                            sortable=True,
-                            filterable=True, 
-                            retrievable=True
-                        ),
-                        self.add_searchable_field(
-                            field_name="step_name", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="step_content", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="documents_used", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_searchable_field(
-                            field_name="systems_used", 
-                            field_type="String", 
-                            searchable=True, 
-                            retrievable=True, 
-                            analyzer_name='el.lucene', 
-                            normalizer_name='lowercase'
-                        ),
-                        self.add_search_field(
-                            field_name="embedding_title",
-                            field_type="Collection(Edm.Single)",
-                            searchable=True,
-                            vector_search_dimensions=3072,
-                            vector_search_profile_name="vector-search-profile"
-                        ),
-                        self.add_search_field(
-                            field_name="embedding_content",
-                            field_type="Collection(Edm.Single)",
-                            searchable=True,
-                            vector_search_dimensions=3072,
-                            vector_search_profile_name="vector-search-profile"
-                        )
-                    ]
-                except Exception as e:
-                    error_msg = f"Error defining detail index fields: {str(e)}"
-                    raise Exception(error_msg) from e
-
-                # Get index names from environment variables
-                core_index_name = os.getenv("INDEX-CORE")
-                detail_index_name = os.getenv("INDEX-DETAIL")
-                
-                if not core_index_name or not detail_index_name:
-                    error_msg = "Missing required environment variables: INDEX-CORE or INDEX-DETAIL"
-                    raise ValueError(error_msg)
-                
-                # Create or update indices
-                try:
-                    self.create_or_update_index(index_name=core_index_name, fields=core_index_fields, vector_search=vector_search)
-                    self.create_or_update_index(index_name=detail_index_name, fields=detail_index_fields, vector_search=vector_search)
-                    
-                except Exception as e:
-                    error_msg = f"Error creating or updating indices: {str(e)}"
-                    raise Exception(error_msg) from e
-
-                # Get storage account and container
-                try:
-                    StAc = self.resource_group.get_storage_account(os.getenv("AZURE_STORAGE_ACCOUNT_NAME"))
-                    container = StAc.get_container(os.getenv("AZURE_CONTAINER"))
-                    folder_structure = container.get_folder_structure()
-                    
-                except Exception as e:
-                    error_msg = f"Error accessing storage: {str(e)}"
-                    raise Exception(error_msg) from e
-
-                # Get cognitive services client
-                try:
-                    cog_mgmt_client = self.subscription.get_cognitive_client()
-                    target_account_name = os.getenv("AI_SERVICE_ACCOUNT_NAME")
-
-                    if not target_account_name:
-                        error_msg = "Missing required environment variable: AI_SERVICE_ACCOUNT_NAME"
-                        raise ValueError(error_msg)
-
-                    account_details = next(
-                        (acc for acc in cog_mgmt_client.accounts.list_by_resource_group(self.resource_group.azure_resource_group.name)
-                        if acc.name == target_account_name), None
-                    )
-                    
-                    if not account_details:
-                        error_msg = f"Azure OpenAI account '{target_account_name}' not found in resource group '{self.resource_group.name}'."
-                        raise ValueError(error_msg)
-
-                    ai_service = AIService(self.resource_group, cog_mgmt_client, account_details)
-                except Exception as e:
-                    error_msg = f"Error initializing AI service: {str(e)}"
-                    raise Exception(error_msg) from e
-
-                # Process files in each folder
-                successful_files = 0
-                failed_files = 0
-                processing_results = []
-
-                for folder, files in folder_structure.items():                    
-                    for file in files:                        
-                        try:
-                            # Get blob content
-                            blob = container.get_blob_content(f"{folder}/{file}")
-                            byte_stream = BytesIO(blob)
-                            doc = Document(byte_stream)
-
-                            # Parse document
-                            parsing = DocParsing(doc, ai_service, format, "domain", folder, "gpt-4o-global-standard", file)
-                            parsed = parsing.doc_to_json()
-                            
-                            # Save parsed document
-                            parsed_file = f"parsed_{folder}_{file}.json"
-                            with open(parsed_file, "w") as f:
-                                json.dump(parsed, f, indent=4)
-
-                            # Get indices
-                            core_index = self.get_index(core_index_name)
-                            detail_index = self.get_index(detail_index_name)
-
-                            # Process document
-                            processor = MultiProcessHandler(parsed, core_index, detail_index, ai_service)
-                            records = processor.process_documents()
-                            
-                            # Save processed records
-                            records_file = f"records_{folder}_{file}.json"
-                            with open(records_file, "w") as f:
-                                json.dump(records, f, indent=4)
-
-                            # Upload to Azure Cognitive Search indices
-                            upload_result = processor.upload_to_azure_index(records, core_index_name, detail_index_name)
-                            
-                            successful_files += 1
-                            processing_results.append({
-                                "file": f"{folder}/{file}",
-                                "status": "success",
-                                "records_count": len(records) if records else 0
-                            })
-                        except Exception as e:
-                            error_msg = f"  Error processing file {folder}/{file}: {str(e)}"
-                            failed_files += 1
-                            processing_results.append({
-                                "file": f"{folder}/{file}",
-                                "status": "failed",
-                                "error": str(e)
-                            })
-                            # Continue with next file instead of aborting the whole process
-                            continue
-
-                # Write processing summary
-                summary = f"\nProcessing Summary:\n"
-                summary += f"Total files processed: {successful_files + failed_files}\n"
-                summary += f"Successfully processed: {successful_files}\n"
-                summary += f"Failed to process: {failed_files}\n"
-                
-                # Save detailed results
-                with open("processing_results.json", "w") as f:
-                    json.dump(processing_results, f, indent=4)
-                                
-        except Exception as e:
-            with open(log_file, "a") as log:
-                error_msg = f"Critical error in hierarchical indexing flow: {str(e)}"
-                # Optional: print to console as well for immediate visibility
-                print(error_msg)
-            raise Exception(f"Hierarchical indexing flow failed. See {log_file} for details.") from e
-        
-        # Return summary information about the process
-        return {
-            "status": "completed" if failed_files == 0 else "completed_with_errors",
-            "total_files": successful_files + failed_files,
-            "successful_files": successful_files,
-            "failed_files": failed_files,
-            "log_file": log_file
-        }
-
-
 def get_std_vector_search( connections_per_node:int = 4, 
                           neighbors_list_size: int = 400, 
                           search_list_size: int = 500, 
@@ -2165,350 +2096,50 @@ class SearchIndex:
         
         return processed_results    
     
-
-from openai import AzureOpenAI
-class AIService:
-    cognitive_client: CognitiveServicesManagementClient
-    azure_account: azcsm.Account
-    resource_group: ResourceGroup
-    
-    
-    def __init__(self, 
-                 resource_group: ResourceGroup,
-                 cognitive_client: CognitiveServicesManagementClient,
-                 azure_Account: azcsm.Account):
-        self.resource_group = resource_group
-        self.cognitive_client = cognitive_client
-        self.azure_account = azure_Account
-    
-    def get_AzureOpenAIClient(self, api_version:str) -> "AzureOpenAI" :
-        keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
-        openai_client = AzureOpenAI(
-            api_key=keys.key1,
-            api_version=api_version,
-            azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
-        )
-        return openai_client
-    
-    def get_OpenAIClient(self, api_version:str) -> "OpenAIClient" :
-        keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
-        openai_client = AzureOpenAI(
-            api_key=keys.key1,
-            api_version=api_version,
-            azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
-        )
-        return OpenAIClient(self, openai_client) 
-
-    def get_models(self, azure_location: str = None) -> List[azcsm.Model]:
-        if (azure_location is None): 
-            azure_location = self.resource_group.azure_resource_group.location
-        models_list = self.cognitive_client.models.list(azure_location)
-        models = [model for model in models_list]
-        return models 
-
-    @staticmethod
-    def get_model_details(model: azcsm.Model) -> Dict[str, Any]:
-        """
-        Get details for a specific model.
-        
-        Args:
-            model_id: The model to be processed
-            
-        Returns:
-            Dictionary with model details
-        """
-        try:
-            info =  {
-                "kind": model.kind,
-                "name": model.model.name,
-                "format": model.model.format,
-                "version": model.model.version,
-                "sju_name": model.sku_name,
-            }
-            return info
-        except Exception as e:
-            print(f"Error getting model '{model.model.name}': {str(e)}")
-            return {}
-
-    def get_deployments(self) -> List[azcsm.Deployment]:
-        try:
-            deployments = list(self.cognitive_client.deployments.list(self.resource_group.get_name(), self.azure_account.name))
-            
-            result = [ deployment for deployment in deployments ]
-            return result
-        except Exception as e:
-            print(f"Error listing deployments: {str(e)}")
-            return []
-        
-    def get_deployment(self, deployment_name:str) -> azcsm.Deployment : 
-            deployment = self.cognitive_client.deployments.get( resource_group_name=self.resource_group.get_name(), account_name=self.azure_account.name, deployment_name=deployment_name )        
-            return deployment
-
-    @staticmethod        
-    def get_deployment_details(deployment: azcsm.Deployment) -> Dict[str, Any]:
-        """
-        Get details for a specific deployment.
-        
-        Args:
-            deployment: The deployment
-            
-        Returns:
-            Dictionary with deployment details
-        """
-        try:
-            # Handle missing properties safely
-            deployment_info = {
-                "name": deployment.name if hasattr(deployment, 'name') else "name not found",
-                "status": "unknown"
-            }
-            # Add properties only if they exist
-            if hasattr(deployment, 'properties'):
-                props = deployment.properties
-                if hasattr(props, 'model'):
-                    deployment_info["model"] = props.model
-                if hasattr(props, 'provisioning_state'):
-                    deployment_info["status"] = props.provisioning_state
-                # Handle scale settings if they exist
-                if hasattr(props, 'scale_settings') and props.scale_settings is not None:
-                    scale_settings = {}
-                    if hasattr(props.scale_settings, 'scale_type'):
-                        scale_settings["scale_type"] = props.scale_settings.scale_type
-                    if hasattr(props.scale_settings, 'capacity'):
-                        scale_settings["capacity"] = props.scale_settings.capacity
-                    deployment_info["scale_settings"] = scale_settings
-                # Add timestamps if they exist
-                if hasattr(props, 'created_at'):
-                    deployment_info["created_at"] = props.created_at
-                if hasattr(props, 'last_modified'):
-                    deployment_info["last_modified"] = props.last_modified
-            return deployment_info
-            
-        except Exception as e:
-            print(f"Error getting deployment '{deployment.name}': {str(e)}")
-            return {}
-
-    def create_deployment(self, 
-                         deployment_name: str, 
-                         model_name: str, 
-                         model_version:str = None,
-                         sku_name: str = "Standard",
-                         capacity: int = 1) -> Union[azcsm.Deployment, Dict[str, str]]:
-        """
-        Create a new model deployment in Azure OpenAI.
-        
-        Args:
-            deployment_name: Name for the new deployment
-            model: Base model name (e.g., 'gpt-4', 'text-embedding-ada-002')
-            capacity: Number of tokens per minute in millions (TPM)
-            scale_type: Scaling type (Standard, Manual)
-            
-        Returns:
-            the Deployment when prepared
-        """
-
-        try:
-            if model_version:
-                model = azcsm.Model(name=model_name, version=model_version)
-            else:
-                model = azcsm.Model(name=model_name)
-
-            deployment_properties = azcsm.DeploymentProperties(model=model)
-            
-            # Create SKU configuration
-            sku = azcsm.Sku(name=sku_name, capacity=capacity)
-
-            # properties = azcsm.DeploymentProperties(
-
-            #     model=model,
-            #     scale_settings=azcsm.DeploymentScaleSettings(
-            #         scale_type=scale_type,
-            #         capacity=capacity
-            #     ),
-            #     rai_policy_name="Microsoft.Default"
-            # )
-            poller = self.cognitive_client.deployments.begin_create_or_update(
-                resource_group_name=self.resource_group.get_name(),
-                account_name=self.azure_account.name,
-                deployment_name=deployment_name,
-                deployment=None, 
-                parameters = { 
-                    "properties": deployment_properties,
-                    "sku": sku
-                }
-            )
-            deployment: azcsm.Deployment = poller.result()
-            return deployment
-            
-        except Exception as e:
-            print(f"Error creating deployment '{deployment_name}': {str(e)}")
-            return {"error": str(e)}
-
-    def delete_deployment(self, deployment_name: str) -> bool:
-        """
-        Delete a model deployment in Azure OpenAI.
-        
-        Args:
-            deployment_name: Name of the deployment to delete
-            
-        Returns:
-            Boolean indicating success or failure
-        """
-        try:
-            # Start the delete operation
-            poller = self.cognitive_client.deployments.begin_delete(
-                resource_group_name=self.resource_group.get_name(),
-                account_name=self.azure_account.name,
-                deployment_name=deployment_name
-            )
-            
-            # Wait for the operation to complete
-            result = poller.result()
-
-            print(f"Successfully deleted deployment '{deployment_name}'")
-            return True
-        except Exception as e:
-            print(f"Error deleting deployment '{deployment_name}': {str(e)}")
-            return False
-
-    def update_deployment(self, 
-                         deployment_name: str, 
-                         sku_name: str = "Standard",
-                         capacity: int = 1) -> Union[azcsm.Deployment, Dict[str, str]]:
-        """
-        Update an existing model deployment in Azure OpenAI.
-        
-        Args:
-            deployment_name: Name of the deployment to update
-            capacity: New capacity value (optional)
-            scale_type: New scale type (optional)
-            
-        Returns:
-            Dictionary with deployment details
-        """
-        try:
-            deployment = self.get_deployment(deployment_name)
-
-            model_props = deployment.properties.model
-            model = azcsm.Model(
-                # If the model is stored as a complex object, preserve its name/version
-                name=model_props.name if hasattr(model_props, 'name') else model_props,
-                version=model_props.version if hasattr(model_props, 'version') else None
-            )            
-            updated_sku = azcsm.Sku(name=sku_name, capacity=capacity)
-
-            deployment_properties = azcsm.DeploymentProperties(model=model)
-
-            poller = self.cognitive_client.deployments.begin_create_or_update(
-                self.resource_group.get_name(),
-                self.azure_account.name,
-                deployment_name,
-                parameters={
-                    "properties": deployment_properties,
-                    "sku": updated_sku
-                }
-            )            
-            deployment = poller.result()
-            return deployment
-        except Exception as e:
-            print(f"Error updating deployment '{deployment_name}': {str(e)}")
-            return {"error": str(e)}
-
-class OpenAIClient:
-    ai_service: AIService 
-    openai_client: AzureOpenAI
-
-    def __init__(self, ai_service: AIService, openai_client: AzureOpenAI):
-        self.ai_service = ai_service
-        self.openai_client = openai_client
-    
-    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
-    def generate_embeddings(self, text: str, model: str = "text-embedding-3-large") -> List[float]:
-        """
-        Generate embeddings for text using Azure OpenAI.
-        
-        Args:
-            text: The text to generate embeddings for
-            model: The embedding model to use
-            
-        Returns:
-            List of float values representing the embedding vector
-        """
-        try:
-            response = self.openai_client.embeddings.create(input=text, model=model)
-            return response.data[0].embedding
-        except Exception as e:
-            print(f"Error generating embeddings: {str(e)}")
-            raise e
-    
-    def generate_chat_completion(self, 
-                                messages: List[Dict[str, str]], 
-                                model: str, 
-                                temperature: float = 0.7, 
-                                max_tokens: int = 800,
-                                ) -> Dict[str, Any]:
-        """
-        Generate a chat completion using Azure OpenAI.
-        
-        Args:
-            messages: List of message dictionaries with 'role' and 'content'
-            model: The deployment name of the model
-            temperature: Temperature for generation (0-1)
-            max_tokens: Maximum number of tokens to generate
-            
-        Returns:
-            Chat completion response
-        """
-        try:
-            response = self.openai_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            return {
-                "content": response.choices[0].message.content,
-                "finish_reason": response.choices[0].finish_reason,
-                "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
-                }
-            }
-        except Exception as e:
-            print(f"Error generating chat completion: {str(e)}")
-            return {"error": str(e)}
-
-from docx import Document
+from docx.document import Document as DocumentObject
 from docx.text.paragraph import Paragraph
 from docx.table import Table
-
+from docx.section import Section
 class DocParsing:
-    def __init__(self, doc_instance, service: AIService, json_format: dict, domain: str, sub_domain: str, model_name: str, doc_name: str):
-        """
-        Initialize the DocParsing class.
+    """
+    Initialize the DocParsing class.
 
-        Parameters:
-            doc_instance: python-docx Document object to be parsed
-            client: Azure OpenAI client for AI processing
-            json_format: Template for the JSON structure
-            domain: Domain category for the document
-            sub_domain: Sub-domain category for the document
-            model_name: Name of the AI model to use
-            doc_name: Name of the document being processed (without extension)
-        """
+    Parameters:
+        doc_instance: python-docx Document object to be parsed
+        openai_client: Azure OpenAI client for AI processing
+        json_format: Template for the JSON structure
+        domain: Domain category for the document
+        sub_domain: Sub-domain category for the document
+        model_name: Name of the AI model to use
+        doc_name: Name of the document being processed (without extension)
+    """
+    doc_instance: DocumentObject
+    openai_client: OpenAIClient
+    json_format: Dict[str, Any]
+    domain: str
+    sub_domain: str
+    model_name: str
+    doc_name: str
 
+    def __init__(self, doc_instance: DocumentObject, openai_client: OpenAIClient, json_format: Dict[str, Any], domain: str, sub_domain: str, model_name: str, doc_name: str):
         print(f"Initializing DocParsing for document: {doc_name}")
-        self.service = service
-        self.client = service.get_AzureOpenAIClient(api_version="2024-05-01-preview")
-        self.doc = doc_instance
-        self.format = json_format # Use the passed dictionary directly
+        self.doc_instance = doc_instance
+        self.openai_client = openai_client
+        self.json_format = json_format
         self.domain = domain
-        self.model_name = model_name
         self.sub_domain = sub_domain
-        self.doc_name = doc_name # Store the name without extension
+        self.model_name = model_name
+        self.doc_name = doc_name
     
-    def _get_section_header_lines(self, section):
-        """Helper to extract text lines from a section's header."""
+    def _get_section_header_lines(self, section: Section) -> List[str]:
+        """Helper function to extract text lines from a section's header.
+
+        Args:
+            section: The python-docx Section object for the header.
+        
+        Returns:
+            lines: List of text lines from the section header.
+        """
         try:
             if not section or not section.header:
                 return []
@@ -2531,8 +2162,15 @@ class DocParsing:
             print(f"Error extracting header lines for section: {e}")
             return []
 
-    def _parse_header_lines(self, header_lines):
-        """Helper to parse header lines to extract the process title."""
+    def _parse_header_lines(self, header_lines: List[str]) -> str:
+        """Helper function to parse header lines to isolate the process title.
+
+        Args:
+            header_lines: List of text lines from the section header.
+        
+        Returns:
+            The identified title segment in the provided lines.
+        """
         if not header_lines:
             return "Metadata" # Default if no lines or only empty lines
 
@@ -2578,8 +2216,15 @@ class DocParsing:
         # If no specific pattern matched, return the first non-metadata line found, or "Metadata"
         return potential_title
 
-    def _extract_header_info(self, section):
-        """Extracts process title from a section header."""
+    def _extract_header_info(self, section: Section) -> str:
+        """Function to extracts the process title from a section header.
+        
+        Args:
+            section: The python-docx Section object for the header.
+        
+        Returns:
+            header_title: The header section's title.
+        """
         try:
             lines = self._get_section_header_lines(section)
             header_title = self._parse_header_lines(lines)
@@ -2588,9 +2233,15 @@ class DocParsing:
             print(f"Error extracting header info: {e}")
             return "Unknown Header" # Return a default on error
 
-    def _iterate_block_items_with_section(self, doc):
-        """Iterates through document blocks (paragraphs, tables) yielding (section_index, block)."""
-        # Logic adapted from combined_pipeline.py, seems more robust than original doc_parsing.py
+    def _iterate_block_items_with_section(self, doc: DocumentObject):
+        """Function to iterate through the document's content blocks (paragraphs, tables).
+
+        Args:
+            doc: The python-docx Document object to parse.
+
+        Yields:
+            The section's index and the content block.
+        """
         parent_elm = doc._element.body
         current_section_index = 0
         last_element_was_sectPr = False
@@ -2613,8 +2264,14 @@ class DocParsing:
             elif child.tag.endswith('sectPr') and not last_element_was_sectPr:
                  current_section_index += 1
 
-    def _extract_table_data(self, table):
-        """Extracts text data from a table, joining cells with ' - '."""
+    def _extract_table_data(self, table: Table):
+        """Extract text data from a table.
+        
+        Args: 
+            Python-docx Table object.
+        Returns:
+            Joined cells with ' - '.
+        """
         data = []
         for row in table.rows:
             row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
@@ -2622,17 +2279,21 @@ class DocParsing:
                 data.append(' - '.join(row_cells))
         return '\n'.join(data) # Join rows with newline
 
-    def _is_single_process(self):
-        """Checks if the document contains a single process based on headers."""
+    def _is_single_process(self) -> Tuple[bool, str]:
+        """Checks if the document contains a single process based on headers.
+        
+        Returns:
+            True if single process, False if multi-process, and the title.
+        """
         print("Checking document for single vs. multi-process structure...")
         section_headers = set()
         first_meaningful_header = None
 
-        if not self.doc.sections:
+        if not self.doc_instance.sections:
             print("Document has no sections.")
             return True, self.doc_name # Treat as single process with doc name as title
 
-        for section_index, section in enumerate(self.doc.sections):
+        for section_index, section in enumerate(self.doc_instance.sections):
             header_title = self._extract_header_info(section)
             if header_title and header_title != "Metadata" and header_title != "Unknown Header":
                 section_headers.add(header_title)
@@ -2650,7 +2311,7 @@ class DocParsing:
             print("Document identified as multi-process.")
             return False, None # Title is None for multi-process
 
-    def extract_data(self):
+    def extract_data(self) -> Dict[Any, str]:
         """
         Extracts content from the document, handling single/multi-process structures.
 
@@ -2666,7 +2327,7 @@ class DocParsing:
             header_key = f"{safe_title}_single_process"
             print(f"Building content for single process: '{header_key}'")
             data_dict[header_key] = []
-            for _, block in self._iterate_block_items_with_section(self.doc):
+            for _, block in self._iterate_block_items_with_section(self.doc_instance):
                 if isinstance(block, Paragraph):
                     text = block.text.strip()
                     if text: data_dict[header_key].append(text)
@@ -2679,14 +2340,14 @@ class DocParsing:
             current_header_key = None
             current_section_content = []
 
-            for section_index, block in self._iterate_block_items_with_section(self.doc):
+            for section_index, block in self._iterate_block_items_with_section(self.doc_instance):
                 if section_index > last_section_index:
                     if current_header_key and current_section_content:
                          data_dict[current_header_key] = "\n".join(current_section_content) # Join previous section
                          print(f"Finalized content for section {last_section_index}: '{current_header_key}' ({len(current_section_content)} blocks)")
 
-                    if section_index < len(self.doc.sections):
-                         header_title = self._extract_header_info(self.doc.sections[section_index])
+                    if section_index < len(self.doc_instance.sections):
+                         header_title = self._extract_header_info(self.doc_instance.sections[section_index])
                          if not header_title or header_title == "Metadata":
                              header_title = f"Unknown_Section_{section_index}"
                          safe_header = re.sub(r'[\\/*?:"<>|]', '_', header_title)
@@ -2696,7 +2357,7 @@ class DocParsing:
                               data_dict[current_header_key] = []
                          current_section_content = [] # Reset buffer
                     else:
-                         print(f"Warning: Block referenced section_index {section_index} > section count {len(self.doc.sections)}. Using last header '{current_header_key}'.")
+                         print(f"Warning: Block referenced section_index {section_index} > section count {len(self.doc_instance.sections)}. Using last header '{current_header_key}'.")
 
                     last_section_index = section_index
 
@@ -2726,7 +2387,7 @@ class DocParsing:
         print(f"Data extraction complete. Found {len(final_data)} process/section block(s).")
         return final_data
 
-    def update_json_with_ai(self, content_to_parse: str, process_identifier: str):
+    def update_json_with_ai(self, content_to_parse: str, process_identifier: str) -> str:
         """
         Uses AI to parse document content into the structured JSON format.
 
@@ -2738,7 +2399,7 @@ class DocParsing:
             str: JSON string containing the parsed content, or None on failure.
         """
         print(f"Requesting AI to parse content for: '{process_identifier}' using model '{self.model_name}'...")
-        format_str = json.dumps(self.format, indent=4, ensure_ascii=False)
+        format_str = json.dumps(self.json_format, indent=4, ensure_ascii=False)
 
         # Prompt emphasizing extraction, structure, and JSON-only output
         prompt = (
@@ -2753,7 +2414,7 @@ class DocParsing:
          )
 
         try:
-            if not self.client:
+            if not self.openai_client:
                  print("Error: Azure OpenAI client is not initialized.")
                  return None
 
@@ -2762,14 +2423,15 @@ class DocParsing:
                 {"role": "user", "content": f"Document Source Name: {self.doc_name}\nProcess/Section Identifier: {process_identifier}\n\nContent to Parse:\n---\n{content_to_parse}\n---"}
             ]
 
-            output_llm = self.client.chat.completions.create(
+            output_llm = self.openai_client.generate_chat_completion(
                 model=self.model_name,
                 messages=messages,
                 temperature=0,
+                max_tokens=None,
                 response_format={"type": "json_object"} # Request JSON output
             )
 
-            ai_response_content = output_llm.choices[0].message.content
+            ai_response_content = output_llm["content"]
             print(f"AI response received ({len(ai_response_content)} chars).")
 
             # Basic validation: Check if it looks like JSON
@@ -2790,13 +2452,12 @@ class DocParsing:
             print(f"Error during AI call for '{process_identifier}': {e}")
             return None
 
-    def _process_doc(self, ai_json_string: str):
+    def _process_doc(self, ai_json_string: str) -> Dict[str, Any]:
         """
         Processes the AI response string, validates JSON and adds metadata.
 
         Parameters:
             ai_json_string: Raw JSON string from the AI.
-            output_path: Full path to save the output JSON file.
         """
         try:
             # Parse the AI's JSON string into a Python dictionary
@@ -2813,19 +2474,17 @@ class DocParsing:
             for key, value in json_data.items():
                 if key not in ordered_data:
                     ordered_data[key] = value
-
-            # with open(output_path, 'w', encoding='utf-8') as file:
-            #     json.dump(ordered_data, file, indent=4, ensure_ascii=False)
-
-            # print(f"JSON data successfully processed and written to {output_path}")
             return ordered_data
 
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON from AI response: {e}")
 
-    def doc_to_json(self):
+    def doc_to_json(self) -> List[Dict[str, Any]]:
         """
         Main method: Converts the python-docx object into a list of dictionaries to be indexed.
+
+        Returns:
+            The final list of dictionaries from the python-docx object.
         """
         print(f"Starting document-to-JSON conversion for '{self.doc_name}'...")
 
@@ -2848,7 +2507,7 @@ class DocParsing:
             if ai_json_result:
                 ordered_data.append(self._process_doc(ai_json_result))
             else:
-                print(f"AI parsing failed for '{process_key}'. JSON file will not be created.")
+                print(f"AI parsing failed for '{process_key}'.")
                 print(f"{self.doc_name} - Section '{process_key}' - AI Parsing Failed")
 
 
@@ -2856,21 +2515,29 @@ class DocParsing:
         return ordered_data
 
 import hashlib
-from typing import List, Dict
 
-class ProcessHandler:
-    def __init__(self, provided_dict):
-        """
-        Initializes the class with a process dictionary.
-        
-        Loads the dictionary containing process information.
-        Prints information about the loading process and the process name.
-        
-        Parameters:
-            provided_dict: The dictionary from process information
-        """
-        self.provided_dict = provided_dict
+class MultiProcessHandler:
+    """
+    Sets up the handler to process multiple documents and upload them to Azure Search
+    using the provided clients.
+    
+    Parameters:
+        dict_list: List of dictionaries to process
+        index_client_core: Azure SearchIndex client for the core index
+        index_client_detail: Azure SearchIndex client for the detailed index
+        openai_client: Azure OpenAI client for generating embeddings
+    """
+    dict_list: List[Dict]
+    index_client_core: SearchIndex
+    index_client_detail: SearchIndex
+    openai_client: OpenAIClient
 
+    def __init__(self, dict_list: List[str], index_client_core: SearchIndex, index_client_detail: SearchIndex, openai_client: OpenAIClient):
+        self.dict_list = dict_list
+        self.index_client_core = index_client_core
+        self.index_client_detail = index_client_detail
+        self.openai_client = openai_client
+    
     def generate_process_id(self, process_name: str, short_description: str) -> int:
         """
         Generate a unique integer ID for the process based on its name and short description.
@@ -2928,7 +2595,7 @@ class ProcessHandler:
         print(f"Generated Step ID: {step_id}")
         return step_id
 
-    def prepare_core_df_record(self, process_id: int) -> Dict:
+    def prepare_core_df_record(self, process_id: int, provided_dict:Dict) -> Dict:
         """
         Prepare record for core_df index.
         
@@ -2937,6 +2604,7 @@ class ProcessHandler:
         
         Parameters:
             process_id: The unique ID for this process
+            provided_dict: The process' dictionary
             
         Returns:
             Dictionary containing the core process information formatted for database storage
@@ -2945,41 +2613,41 @@ class ProcessHandler:
         
         # Prepare steps information
         steps_info = []
-        for step in self.provided_dict.get('steps', []):
+        for step in provided_dict.get('steps', []):
             step_text = f"Βήμα {step['step_number']} {step['step_name']}"
             steps_info.append(step_text)
 
         # Prepare summary
         summary_parts = [
-            "Εισαγωγή:", self.provided_dict.get('introduction', ''),
-            "Σύντομη περιγραφή:", self.provided_dict.get('short_description', ''),
+            "Εισαγωγή:", provided_dict.get('introduction', ''),
+            "Σύντομη περιγραφή:", provided_dict.get('short_description', ''),
             "Αναλυτικά βήματα:", "\n".join(steps_info),
-            "Οικογένεια προιόντων:", ", ".join(self.provided_dict.get('related_products', [])),
-            "Έγγραφα αναφοράς:", ", ".join(self.provided_dict.get('reference_documents', []))
+            "Οικογένεια προιόντων:", ", ".join(provided_dict.get('related_products', [])),
+            "Έγγραφα αναφοράς:", ", ".join(provided_dict.get('reference_documents', []))
         ]
         non_llm_summary = "\n\n".join(summary_parts)
 
         # Prepare core record
         core_record = {
             'process_id': process_id,
-            'process_name': self.provided_dict.get('process_name', ''),
-            'doc_name': self.provided_dict.get('doc_name', '').split('.')[0],
-            'domain': self.provided_dict.get('domain', ''),
-            'sub_domain': self.provided_dict.get('subdomain', ''),
-            'functional_area': self.provided_dict.get('functional_area', ''),
-            'functional_subarea': self.provided_dict.get('functional_subarea', ''),
-            'process_group': self.provided_dict.get('process_group', ''),
-            'process_subgroup': self.provided_dict.get('process_subgroup', ''),
-            'reference_documents': ', '.join(self.provided_dict.get('reference_documents', [])),
-            'related_products': ', '.join(self.provided_dict.get('related_products', [])),
-            'additional_information': self.provided_dict.get('additional_information', ''),
+            'process_name': provided_dict.get('process_name', ''),
+            'doc_name': provided_dict.get('doc_name', '').split('.')[0],
+            'domain': provided_dict.get('domain', ''),
+            'sub_domain': provided_dict.get('subdomain', ''),
+            'functional_area': provided_dict.get('functional_area', ''),
+            'functional_subarea': provided_dict.get('functional_subarea', ''),
+            'process_group': provided_dict.get('process_group', ''),
+            'process_subgroup': provided_dict.get('process_subgroup', ''),
+            'reference_documents': ', '.join(provided_dict.get('reference_documents', [])),
+            'related_products': ', '.join(provided_dict.get('related_products', [])),
+            'additional_information': provided_dict.get('additional_information', ''),
             'non_llm_summary': non_llm_summary.strip()
         }
 
         print("Core DataFrame Record prepared successfully")
         return core_record
 
-    def prepare_detailed_df_records(self, process_id: int) -> List[Dict]:
+    def prepare_detailed_df_records(self, process_id: int, provided_dict:Dict) -> List[Dict]:
         """
         Prepare records for detailed_df index.
         
@@ -2988,6 +2656,7 @@ class ProcessHandler:
         
         Parameters:
             process_id: The unique ID for the parent process
+            provided_dict: The process' dictionary
             
         Returns:
             List of dictionaries containing detailed step information formatted for database storage
@@ -2996,16 +2665,16 @@ class ProcessHandler:
         detailed_records = []
 
         # Generate Process ID
-        process_name = self.provided_dict.get('process_name', '')
-        short_description = self.provided_dict.get('short_description', '')
+        process_name = provided_dict.get('process_name', '')
+        short_description = provided_dict.get('short_description', '')
         process_id = self.generate_process_id(process_name, short_description)
 
         # Add Introduction (step 0)
         intro_content = (
-            f"Εισαγωγή:\n{self.provided_dict.get('introduction', '')}\n\n"
-            f"Σύντομη περιγραφή:\n{self.provided_dict.get('short_description', '')}\n\n"
-            f"Οικογένεια προιόντων:\n{', '.join(self.provided_dict.get('related_products', []))}\n\n"
-            f"Έγγραφα αναφοράς:\n{', '.join(self.provided_dict.get('reference_documents', []))}"
+            f"Εισαγωγή:\n{provided_dict.get('introduction', '')}\n\n"
+            f"Σύντομη περιγραφή:\n{provided_dict.get('short_description', '')}\n\n"
+            f"Οικογένεια προιόντων:\n{', '.join(provided_dict.get('related_products', []))}\n\n"
+            f"Έγγραφα αναφοράς:\n{', '.join(provided_dict.get('reference_documents', []))}"
         )
         
         intro_record = {
@@ -3020,8 +2689,8 @@ class ProcessHandler:
         detailed_records.append(intro_record)
 
         # Add regular steps
-        print(f"Total Steps: {len(self.provided_dict.get('steps', []))}")
-        for step in self.provided_dict.get('steps', []):
+        print(f"Total Steps: {len(provided_dict.get('steps', []))}")
+        for step in provided_dict.get('steps', []):
             step_content = step.get('step_description', '')
             record = {
                 'id': self.generate_step_id(process_name, step['step_name'], step_content),
@@ -3038,12 +2707,15 @@ class ProcessHandler:
         print("Detailed DataFrame Records prepared successfully")
         return detailed_records
 
-    def prepare_for_upload(self) -> List[Dict]:
+    def prepare_for_upload(self, provided_dict) -> List[Dict]:
         """
-        Prepare all records for upload from the JSON data.
+        Prepare all records for upload.
         
         Coordinates the generation of process IDs and the preparation
         of both core and detailed records for database upload.
+
+        Parameters:
+            provided_dict: The process' dictionary
         
         Returns:
             Tuple containing the core record dictionary and a list of detailed record dictionaries
@@ -3051,84 +2723,33 @@ class ProcessHandler:
         print("Preparing records for upload")
         
         # Prepare core record
-        process_name = self.provided_dict.get('process_name', '')
-        short_description = self.provided_dict.get('short_description', '')
+        process_name = provided_dict.get('process_name', '')
+        short_description = provided_dict.get('short_description', '')
         process_id = self.generate_process_id(process_name, short_description)
-        core_record = self.prepare_core_df_record(process_id)
+        core_record = self.prepare_core_df_record(process_id, provided_dict)
 
         # Prepare detailed records
-        detailed_records = self.prepare_detailed_df_records(process_id)
+        detailed_records = self.prepare_detailed_df_records(process_id, provided_dict)
 
         print("Upload preparation completed")
         # Combine the core record with the detailed records
         return core_record, detailed_records
-
-    # Example usage function with enhanced logging
-    def process_dict_for_upload(provided_dict: Dict) -> List[Dict]:
-        '''
-        Process a Dictionary containing process data and prepare it for database upload.
-        
-        Creates a ProcessHandler instance to handle the JSON file,
-        then prepares both core and detailed records for upload.
-        
-        Parameters:
-            provided_dict: The process' dictionary 
-            
-        Returns:
-            Tuple containing the core record dictionary and a list of detailed record dictionaries
-        '''
-        document_processor = ProcessHandler(provided_dict)
-        core, detail = document_processor.prepare_for_upload()
-        
-        print("\nCore Record Summary:")
-        print(f"Process Name: {core.get('process_name', 'N/A')}")
-        print(f"Domain: {core.get('domain', 'N/A')}")
-        print(f"Sub-domain: {core.get('sub_domain', 'N/A')}")
-        
-        print(f"\nDetailed Records:")
-        print(f"Total Records: {len(detail)}")
-        
-        return core, detail
-
-class MultiProcessHandler:
-    def __init__(self, dict_list: List[str], client_core, client_detail, service):
-        """
-        Initializes the class with a list of dictionaries and necessary clients.
-        
-        Sets up the handler to process multiple JSON files and upload them to Azure Search
-        using the provided clients.
-        
-        Parameters:
-            dict_list: List of dictionaries to process
-            client_core: Azure Search client for the core index
-            client_detail: Azure Search client for the detailed index
-            oai_client: Azure OpenAI client for generating embeddings
-        """
-        self.dict_list = dict_list
-        self.client_core = client_core
-        self.client_detail = client_detail
-        self.oai_client = service.get_AzureOpenAIClient(api_version="2024-05-01-preview")
     
     def process_documents(self) -> List[Dict]:
         """
         Processes multiple documents and returns a list of processed records for each document.
         
-        Iterates through each JSON file path, verifies its existence, and uses the ProcessHandler
-        to prepare core and detailed records for upload.
+        Iterates through each document and uses the prepare_for_upload method
+        to prepare the core and detailed records for upload.
         
         Returns:
             List of dictionaries, each containing 'core' and 'detailed' records for a document
-            
-        Note:
-            If a file doesn't exist or an error occurs during processing, the error is logged
-            and the function continues with the next file.
         """
         all_records = []
 
         for i in self.dict_list:
             try:
-                document_processor = ProcessHandler(provided_dict=i)
-                core_record, detailed_records = document_processor.prepare_for_upload()
+                core_record, detailed_records = self.prepare_for_upload(i)
                 all_records.append({
                     'core': core_record,
                     'detailed': detailed_records
@@ -3138,35 +2759,6 @@ class MultiProcessHandler:
 
         return all_records
     
-    def generate_embeddings(self, client: AzureOpenAI, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
-        """
-        Generate embeddings for given texts.
-        
-        Creates vector embeddings for each text string using the Azure OpenAI embeddings API.
-        Returns empty lists for any texts that fail to process or are empty.
-        
-        Parameters:
-            client: Azure OpenAI client instance
-            texts: List of text strings to generate embeddings for
-            model: Name of the embedding model to use (default: 'text-embedding-3-large')
-        
-        Returns:
-            List of embedding vectors (each a list of floats) corresponding to the input texts
-        """
-
-        embeddings = []
-        for text in texts:
-            if text:
-                try:
-                    embedding = client.embeddings.create(input=text, model=model).data[0].embedding
-                    embeddings.append(embedding)
-                except Exception as e:
-                    embeddings.append([])
-                    print("error")
-            else:
-                embeddings.append([])
-        return embeddings
-
     def upload_to_azure_index(self, all_records: List[Dict], core_index_name: str, detailed_index_name: str) -> None:
         """
         Uploads the processed records to Azure Search indexes.
@@ -3185,21 +2777,67 @@ class MultiProcessHandler:
             and handles any errors that occur during the upload process.
             
         Results:
-            Records are uploaded to Azure Search if successful
-            Error messages are printed to console if upload fails
+            Records are uploaded to Azure Search.
         """
         
-        client_core = self.client_core
-        client_detail = self.client_detail
+        index_client_core = self.index_client_core
+        index_client_detail = self.index_client_detail
 
-        oai_client = self.oai_client
+        openai_client = self.openai_client
+
+        def get_embeddings_list(openai_client: OpenAIClient, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
+            """
+            Retrieve embeddings for a list of given texts.
+            Handles text truncation if content exceeds model's token limit.
+            """
+
+            embeddings = []
+            for text in texts:
+                if text:
+                    try:
+                        embedding = openai_client.generate_embeddings(text=text, model=model)
+                        embeddings.append(embedding)
+                    except Exception as e:
+                        # Check if error is related to token limit
+                        error_str = str(e)
+                        if "maximum context length" in error_str and "tokens" in error_str:
+                            try:
+                                # Try to extract the requested tokens from error message
+                                import re
+                                match = re.search(r'requested (\d+) tokens', error_str)
+                                requested_tokens = int(match.group(1)) if match else 10000
+                                max_tokens = 8192  # Default max tokens for embedding models
+                                
+                                if "maximum context length is" in error_str:
+                                    max_match = re.search(r'maximum context length is (\d+)', error_str)
+                                    if max_match:
+                                        max_tokens = int(max_match.group(1))
+                                
+                                # Calculate ratio to truncate text
+                                ratio = max_tokens / requested_tokens * 0.9  # 10% safety margin
+                                truncated_length = int(len(text) * ratio)
+                                truncated_text = text[:truncated_length]
+                                print(f"Truncating text from {len(text)} chars to {len(truncated_text)} chars to fit token limit")
+                                
+                                # Try again with truncated text
+                                embedding = openai_client.generate_embeddings(text=truncated_text, model=model)
+                                embeddings.append(embedding)
+                            except Exception as inner_e:
+                                print(f"Error after truncation attempt: {inner_e}")
+                                embeddings.append([])
+                        else:
+                            print(f"Error generating embeddings: {e}")
+                            embeddings.append([])
+                else:
+                    embeddings.append([])
+            return embeddings
         
         try:
             for record in all_records:
                 # For the core record, generate an embedding for 'non_llm_summary' if it exists.
                 if 'non_llm_summary' in record['core']:
                     summary_text = record['core']['non_llm_summary']
-                    embeddings = self.generate_embeddings(oai_client, [summary_text])
+                    embeddings = get_embeddings_list(openai_client, [summary_text])
                     if embeddings and len(embeddings) > 0:
                         # Assign the embedding vector (list of numbers) directly
                         record['core']['embedding_summary'] = embeddings[0]
@@ -3210,11 +2848,11 @@ class MultiProcessHandler:
                     if 'id' in step:
                         step['id'] = str(step['id'])
                     if 'step_name' in step:
-                        name_embeddings = self.generate_embeddings(oai_client, [step['step_name']])
+                        name_embeddings = get_embeddings_list(openai_client, [step['step_name']])
                         if name_embeddings and len(name_embeddings) > 0:
                             step['embedding_title'] = name_embeddings[0]
                     if 'step_content' in step:
-                        content_embeddings = self.generate_embeddings(oai_client, [step['step_content']])
+                        content_embeddings = get_embeddings_list(openai_client, [step['step_content']])
                         if content_embeddings and len(content_embeddings) > 0:
                             step['embedding_content'] = content_embeddings[0]
                 
@@ -3224,8 +2862,8 @@ class MultiProcessHandler:
 
                 
                 # Now upload the records to the respective Azure Search indexes.
-                response_core = client_core.upload_rows(documents=[record['core']])
-                response_detail = client_detail.upload_rows(documents=record['detailed'])
+                response_core = index_client_core.upload_rows(documents=[record['core']])
+                response_detail = index_client_detail.upload_rows(documents=record['detailed'])
                 print(f"Successfully uploaded records for {record['core'].get('process_name', 'Unknown')}")
         except Exception as e:
             print(f"Error uploading records: {e}")
