@@ -2918,35 +2918,6 @@ class MultiProcessHandler:
 
         return all_records
     
-    def get_list_embeddings(self, openai_client: OpenAIClient, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
-        """
-        Retrieve embeddings for a list of given texts.
-        
-        Gets vector embeddings for each text string using the OpenAIClient.
-        Returns empty lists for any texts that fail to process or are empty.
-        
-        Parameters:
-            openai_client: OpenAIClient instance
-            texts: List of text strings to generate embeddings for
-            model: Name of the embedding model to use (default: 'text-embedding-3-large')
-        
-        Returns:
-            List of embedding vectors (each a list of floats) corresponding to the input texts
-        """
-
-        embeddings = []
-        for text in texts:
-            if text:
-                try:
-                    embedding = openai_client.generate_embeddings(input=text, model=model)
-                    embeddings.append(embedding)
-                except Exception as e:
-                    embeddings.append([])
-                    print("error")
-            else:
-                embeddings.append([])
-        return embeddings
-
     def upload_to_azure_index(self, all_records: List[Dict], core_index_name: str, detailed_index_name: str) -> None:
         """
         Uploads the processed records to Azure Search indexes.
@@ -2971,14 +2942,32 @@ class MultiProcessHandler:
         index_client_core = self.index_client_core
         index_client_detail = self.index_client_detail
 
-        oai_client = self.oai_client
+        openai_client = self.openai_client
+
+        def get_list_embeddings(openai_client: OpenAIClient, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
+            """
+            Retrieve embeddings for a list of given texts.
+            """
+
+            embeddings = []
+            for text in texts:
+                if text:
+                    try:
+                        embedding = openai_client.generate_embeddings(input=text, model=model)
+                        embeddings.append(embedding)
+                    except Exception as e:
+                        embeddings.append([])
+                        print("error")
+                else:
+                    embeddings.append([])
+            return embeddings
         
         try:
             for record in all_records:
                 # For the core record, generate an embedding for 'non_llm_summary' if it exists.
                 if 'non_llm_summary' in record['core']:
                     summary_text = record['core']['non_llm_summary']
-                    embeddings = self.get_list_embeddings(oai_client, [summary_text])
+                    embeddings = get_list_embeddings(openai_client, [summary_text])
                     if embeddings and len(embeddings) > 0:
                         # Assign the embedding vector (list of numbers) directly
                         record['core']['embedding_summary'] = embeddings[0]
@@ -2989,11 +2978,11 @@ class MultiProcessHandler:
                     if 'id' in step:
                         step['id'] = str(step['id'])
                     if 'step_name' in step:
-                        name_embeddings = self.get_list_embeddings(oai_client, [step['step_name']])
+                        name_embeddings = self.get_list_embeddings(openai_client, [step['step_name']])
                         if name_embeddings and len(name_embeddings) > 0:
                             step['embedding_title'] = name_embeddings[0]
                     if 'step_content' in step:
-                        content_embeddings = self.get_list_embeddings(oai_client, [step['step_content']])
+                        content_embeddings = self.get_list_embeddings(openai_client, [step['step_content']])
                         if content_embeddings and len(content_embeddings) > 0:
                             step['embedding_content'] = content_embeddings[0]
                 
