@@ -1230,165 +1230,6 @@ class SearchService:
         """
         return SearchIndexerManager(self)
     
-    def run_hierarchical_indexing_flow(self, 
-                                       container: Container, 
-                                       openai_client: OpenAIClient, 
-                                       indexing_format: str, 
-                                       semantic_config: Optional[Dict[str, Any]], 
-                                       vector_search: azsdim.VectorSearch) -> None:
-        """
-        Runs the hierarchical indexing flow.
-
-        Args:
-            container: The container to read blob files from
-            openai_client: The OpenAIClient class instance for generating embeddings
-            indexing_format: The indexing template
-            semantic_config: Semantic configuration to be added to the Index
-            vector_search: The vector search configuration for embeddings in Index fields
-        
-        This method creates and uploads the flow's Indexes to Azure.
-        """
-        try:
-            # Define core index fields
-            try:
-                analyzer_normalizer_config = {
-                    "analyzer_name": "el.lucene",
-                    "normalizer_name": "lowercase"
-                }
-                
-                # Helper function to reduce repetition
-                def create_field(field_name, field_type, **kwargs):
-                    # Determine which method to use based on parameters
-                    if kwargs.get("vector_search_dimensions"):
-                        method = self.add_search_field
-                    elif kwargs.get("searchable") and field_type == "String" and not kwargs.get("is_key"):
-                        method = self.add_searchable_field
-                    else:
-                        method = self.add_simple_field
-                    
-                    # Apply text search config to String fields if not overridden
-                    if field_type == "String" and kwargs.get("searchable") and "analyzer_name" not in kwargs:
-                        kwargs.update(analyzer_normalizer_config)
-                        
-                    return method(field_name=field_name, field_type=field_type, **kwargs)
-                
-                # Define all fields with their specific configurations
-                core_index_fields = [
-                    create_field("process_id", "String", searchable=True, filterable=True, retrievable=True, is_key=True),
-                    create_field("process_name", "String", searchable=True, retrievable=True),
-                    create_field("doc_name", "String", searchable=True, retrievable=True, filterable=True),
-                    create_field("domain", "String", searchable=True, retrievable=True, filterable=True),
-                    create_field("sub_domain", "String", searchable=True, retrievable=True, filterable=True),
-                    create_field("functional_area", "String", searchable=True, retrievable=True),
-                    create_field("functional_subarea", "String", searchable=True, retrievable=True),
-                    create_field("process_group", "String", searchable=True, retrievable=True),
-                    create_field("process_subgroup", "String", searchable=True, retrievable=True),
-                    create_field("reference_documents", "String", searchable=True, retrievable=True),
-                    create_field("related_products", "String", searchable=True, retrievable=True),
-                    create_field("additional_information", "String", searchable=True, retrievable=True),
-                    create_field("non_llm_summary", "String", searchable=True, retrievable=True),
-                    create_field("embedding_summary", "Collection(Edm.Single)", searchable=True,
-                                vector_search_dimensions=3072, vector_search_profile_name="vector-search-profile")
-                ] 
-            except Exception as e:
-                error_msg = f"Error defining core index fields: {str(e)}"
-                raise Exception(error_msg) from e
-
-            # Define detail index fields
-            try:
-                detail_index_fields = [
-                    create_field("id", "String", searchable=True, filterable=True, retrievable=True, is_key=True),
-                    create_field("process_id", "String", searchable=True, filterable=True, retrievable=True),
-                    create_field("step_number", "Int64", searchable=True, sortable=True, filterable=True, retrievable=True),
-                    create_field("step_name", "String", searchable=True, retrievable=True),
-                    create_field("step_content", "String", searchable=True, retrievable=True),
-                    create_field("documents_used", "String", searchable=True, retrievable=True),
-                    create_field("systems_used", "String", searchable=True, retrievable=True),
-                    create_field("embedding_title", "Collection(Edm.Single)", searchable=True, 
-                                vector_search_dimensions=3072, vector_search_profile_name="vector-search-profile"),
-                    create_field("embedding_content", "Collection(Edm.Single)", searchable=True, 
-                                vector_search_dimensions=3072, vector_search_profile_name="vector-search-profile")
-                ]
-            except Exception as e:
-                error_msg = f"Error defining detail index fields: {str(e)}"
-                raise Exception(error_msg) from e
-
-            # Get index names from environment variables
-            core_index_name = os.getenv("INDEX-CORE")
-            detail_index_name = os.getenv("INDEX-DETAIL")
-            
-            if not core_index_name or not detail_index_name:
-                error_msg = "Missing required environment variables: INDEX-CORE or INDEX-DETAIL"
-                raise ValueError(error_msg)
-            
-            # Create or update indices
-            try:
-                self.create_or_update_index(index_name=core_index_name, fields=core_index_fields, vector_search=vector_search)
-                self.create_or_update_index(index_name=detail_index_name, fields=detail_index_fields, vector_search=vector_search)
-                
-            except Exception as e:
-                error_msg = f"Error creating or updating indices: {str(e)}"
-                raise Exception(error_msg) from e
-
-            # Get storage account and container
-            try:
-                folder_structure = container.get_folder_structure()
-                
-            except Exception as e:
-                error_msg = f"Error accessing storage: {str(e)}"
-                raise Exception(error_msg) from e
-
-            # Process files in each folder
-            successful_files = 0
-            failed_files = 0
-
-            for folder, files in folder_structure.items():                    
-                for file in files:                        
-                    try:
-                        # Get blob content
-                        blob = container.get_blob_content(f"{folder}/{file}")
-                        byte_stream = BytesIO(blob)
-                        doc = Document(byte_stream)
-
-                        # Parse document
-                        parsing = DocParsing(doc, openai_client, indexing_format, "domain", folder, "gpt-4o-global-standard", file)
-                        parsed = parsing.doc_to_json()
-                        
-                        # Get indices
-                        core_index = self.get_index(core_index_name)
-                        detail_index = self.get_index(detail_index_name)
-
-                        # Process document
-                        processor = MultiProcessHandler(parsed, core_index, detail_index, openai_client)
-                        records = processor.process_documents()
-                        
-                        # Upload to Azure Cognitive Search indices
-                        upload_result = processor.upload_to_azure_index(records, core_index_name, detail_index_name)
-                        
-                        successful_files += 1
-                    except Exception as e:
-                        error_msg = f"  Error processing file {folder}/{file}: {str(e)}"
-                        # Continue with next file instead of aborting the whole process
-                        continue
-
-            # Write processing summary
-            summary = f"\nProcessing Summary:\n"
-            summary += f"Total files processed: {successful_files + failed_files}\n"
-            summary += f"Successfully processed: {successful_files}\n"
-            summary += f"Failed to process: {failed_files}\n"
-                                            
-        except Exception as e:
-            raise Exception(f"Hierarchical indexing flow failed.") from e
-        
-        # Return summary information about the process
-        return {
-            "status": "completed" if failed_files == 0 else "completed_with_errors",
-            "total_files": successful_files + failed_files,
-            "successful_files": successful_files,
-            "failed_files": failed_files
-        }
-
-
 def get_std_vector_search( connections_per_node:int = 4, 
                           neighbors_list_size: int = 400, 
                           search_list_size: int = 500, 
@@ -2944,20 +2785,49 @@ class MultiProcessHandler:
 
         openai_client = self.openai_client
 
-        def get_list_embeddings(openai_client: OpenAIClient, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
+        def get_embeddings_list(openai_client: OpenAIClient, texts: List[str], model: str = 'text-embedding-3-large') -> List[List[float]]:
             """
             Retrieve embeddings for a list of given texts.
+            Handles text truncation if content exceeds model's token limit.
             """
 
             embeddings = []
             for text in texts:
                 if text:
                     try:
-                        embedding = openai_client.generate_embeddings(input=text, model=model)
+                        embedding = openai_client.generate_embeddings(text=text, model=model)
                         embeddings.append(embedding)
                     except Exception as e:
-                        embeddings.append([])
-                        print("error")
+                        # Check if error is related to token limit
+                        error_str = str(e)
+                        if "maximum context length" in error_str and "tokens" in error_str:
+                            try:
+                                # Try to extract the requested tokens from error message
+                                import re
+                                match = re.search(r'requested (\d+) tokens', error_str)
+                                requested_tokens = int(match.group(1)) if match else 10000
+                                max_tokens = 8192  # Default max tokens for embedding models
+                                
+                                if "maximum context length is" in error_str:
+                                    max_match = re.search(r'maximum context length is (\d+)', error_str)
+                                    if max_match:
+                                        max_tokens = int(max_match.group(1))
+                                
+                                # Calculate ratio to truncate text
+                                ratio = max_tokens / requested_tokens * 0.9  # 10% safety margin
+                                truncated_length = int(len(text) * ratio)
+                                truncated_text = text[:truncated_length]
+                                print(f"Truncating text from {len(text)} chars to {len(truncated_text)} chars to fit token limit")
+                                
+                                # Try again with truncated text
+                                embedding = openai_client.generate_embeddings(text=truncated_text, model=model)
+                                embeddings.append(embedding)
+                            except Exception as inner_e:
+                                print(f"Error after truncation attempt: {inner_e}")
+                                embeddings.append([])
+                        else:
+                            print(f"Error generating embeddings: {e}")
+                            embeddings.append([])
                 else:
                     embeddings.append([])
             return embeddings
@@ -2967,7 +2837,7 @@ class MultiProcessHandler:
                 # For the core record, generate an embedding for 'non_llm_summary' if it exists.
                 if 'non_llm_summary' in record['core']:
                     summary_text = record['core']['non_llm_summary']
-                    embeddings = get_list_embeddings(openai_client, [summary_text])
+                    embeddings = get_embeddings_list(openai_client, [summary_text])
                     if embeddings and len(embeddings) > 0:
                         # Assign the embedding vector (list of numbers) directly
                         record['core']['embedding_summary'] = embeddings[0]
@@ -2978,11 +2848,11 @@ class MultiProcessHandler:
                     if 'id' in step:
                         step['id'] = str(step['id'])
                     if 'step_name' in step:
-                        name_embeddings = self.get_list_embeddings(openai_client, [step['step_name']])
+                        name_embeddings = get_embeddings_list(openai_client, [step['step_name']])
                         if name_embeddings and len(name_embeddings) > 0:
                             step['embedding_title'] = name_embeddings[0]
                     if 'step_content' in step:
-                        content_embeddings = self.get_list_embeddings(openai_client, [step['step_content']])
+                        content_embeddings = get_embeddings_list(openai_client, [step['step_content']])
                         if content_embeddings and len(content_embeddings) > 0:
                             step['embedding_content'] = content_embeddings[0]
                 
