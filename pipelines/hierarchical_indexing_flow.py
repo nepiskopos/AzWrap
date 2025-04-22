@@ -7,16 +7,16 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from io import BytesIO
 from datetime import datetime
 
+# Adjust import path to access the AzWrap package from parent directory
+sys.path.append(os.path.abspath(".."))
+
 from AzWrap.wrapper import Container, DocParsing, MultiProcessHandler, OpenAIClient
 import azure.search.documents.indexes.models as azsdim
 from docx import Document
-
-sys.path.append(os.path.abspath(".."))
-
 from dotenv import load_dotenv
 from azure.search.documents.indexes.models import SearchField, SimpleField, SearchableField, SearchFieldDataType
 
-# Import the logger module
+# Import the logger module from current directory
 from logger import get_logger
 
 # Set up logger
