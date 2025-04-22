@@ -16,55 +16,16 @@ sys.path.append(os.path.abspath(".."))
 from dotenv import load_dotenv
 from azure.search.documents.indexes.models import SearchField, SimpleField, SearchableField, SearchFieldDataType
 
-# Set stdout encoding to utf-8 to handle non-ASCII characters
-sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, errors='replace')
-sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, errors='replace')
+# Import the logger module
+from logger import get_logger
 
-# Create logs directory if it doesn't exist
+# Set up logger
 logs_dir = os.path.join(os.path.dirname(__file__), 'logs')
-if not os.path.exists(logs_dir):
-    os.makedirs(logs_dir)
-
-# Configure logging
-logger = logging.getLogger("hierarchical_indexing_flow")
-logger.setLevel(logging.INFO)
-
-# Create console handler with custom formatting
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-
-# Create file handler with custom formatting and ensure UTF-8 encoding
-file_handler = logging.FileHandler(os.path.join(logs_dir, 'hierarchical_indexing.log'), encoding='utf-8')
-file_handler.setLevel(logging.INFO)
-
-# Create formatter that doesn't include the logger name (cleaner output)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(formatter)
-file_handler.setFormatter(formatter)
-
-# Add handlers to logger
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
-
-# Prevent logger from propagating to root logger to avoid duplicate logs
-logger.propagate = False
-
-# Configure Azure SDK loggers to suppress their output to our handlers
-# Set higher level for Azure SDK related loggers
-azure_loggers = [
-    'azure',
-    'azure.core',
-    'azure.identity',
-    'azure.mgmt',
-    'azure.storage',
-    'azure.search',
-    'msal',
-    'urllib3',
-    'requests'
-]
-
-for azure_logger in azure_loggers:
-    logging.getLogger(azure_logger).setLevel(logging.WARNING)
+logger = get_logger(
+    logger_name="hierarchical_indexing_flow",
+    log_file="hierarchical_indexing.log",
+    log_dir=logs_dir
+)
 
 class HierarchicalIndexingFlow:
     """

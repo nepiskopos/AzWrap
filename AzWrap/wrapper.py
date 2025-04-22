@@ -476,6 +476,70 @@ class Container:
         """
         return self.get_blob_content(blob_properties.name)
     
+    def get_blob_info(self, blob_name: str) -> Dict[str, Any]:
+        """
+        Get comprehensive information about a specific file (blob) identified by its name
+        
+        Args:
+            blob_name: Name of the blob/file to retrieve information for
+                       (includes the full path within the container if in a virtual folder)
+            
+        Returns:
+            Dict[str, Any]: Dictionary containing all available information about the blob/file
+            
+        Raises:
+            ValueError: If the blob/file cannot be found or accessed
+            
+        Example:
+            info = container.get_blob_info("folder/myfile.txt")
+            print(f"File size: {info['size_bytes']} bytes")
+            print(f"Last modified: {info['last_modified']}")
+        """
+        try:
+            # Get the blob client for the specific blob
+            blob_client = self.container_client.get_blob_client(blob_name)
+            
+            # Get blob properties
+            properties = blob_client.get_blob_properties()
+            
+            # Create a comprehensive info dictionary
+            blob_info = {
+                "name": blob_name,
+                "path": blob_name,
+                "size_bytes": properties.size,
+                "content_type": properties.content_settings.content_type if properties.content_settings else None,
+                "creation_time": properties.creation_time,
+                "last_modified": properties.last_modified,
+                "etag": properties.etag,
+                "content_md5": properties.content_settings.content_md5 if properties.content_settings else None,
+                "content_encoding": properties.content_settings.content_encoding if properties.content_settings else None,
+                "content_language": properties.content_settings.content_language if properties.content_settings else None,
+                "cache_control": properties.content_settings.cache_control if properties.content_settings else None,
+                "content_disposition": properties.content_settings.content_disposition if properties.content_settings else None,
+                "lease_status": properties.lease.status if properties.lease else None,
+                "lease_state": properties.lease.state if properties.lease else None,
+                "access_tier": properties.blob_tier,
+                "metadata": properties.metadata,
+                "blob_type": self.get_blob_type(blob_name),
+            }
+            
+            # Add container info
+            blob_info["container_name"] = self.container_client.container_name
+            
+            # Extract folder path if the blob is in a virtual folder
+            if '/' in blob_name:
+                folder_path = '/'.join(blob_name.split('/')[:-1])
+                filename = blob_name.split('/')[-1]
+                blob_info["folder_path"] = folder_path
+                blob_info["filename"] = filename
+            else:
+                blob_info["folder_path"] = ""
+                blob_info["filename"] = blob_name
+                
+            return blob_info
+            
+        except Exception as e:
+            raise ValueError(f"Error retrieving information for file '{blob_name}': {str(e)}")
         
     def get_docx_content(self, blob_name: str) -> str:
         """
@@ -2867,3 +2931,4 @@ class MultiProcessHandler:
                 print(f"Successfully uploaded records for {record['core'].get('process_name', 'Unknown')}")
         except Exception as e:
             print(f"Error uploading records: {e}")
+        
