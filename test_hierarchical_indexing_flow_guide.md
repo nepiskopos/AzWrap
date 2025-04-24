@@ -17,8 +17,8 @@ Ensure the following variables are added to the `.env` file:
 * `AZURE_STORAGE_ACCOUNT_NAME`
 * `AZURE_CONTAINER`
 
-## Run Test script
+## Run Pipeline script
 
-In order to run `test_hierarchical_indexing_flow.py` , execute the below command inside the `test` directory:
+In order to run `hierarchical_indexing_flow.py` , execute the below command inside the `pipelines` directory:
 
-`python test_hierarchical_indexing_flow.py`
+`python hierarchical_indexing_flow.py`

@@ -2160,6 +2160,83 @@ class SearchIndex:
         
         return processed_results    
     
+    def perform_filtered_hybrid_search(self,
+                             query_text: str,
+                             query_vector: List[float],
+                             filter_by: str = None,
+                             filter_vals: list = None,
+                             vector_fields: Optional[str] = None,
+                             display_fields: Optional[str] = None,
+                             search_options: Optional[Dict[str, Any]] = None,
+                             use_semantic_search: bool = False,
+                             top: int = 5,
+                             vectorized_query_kind: str = "vector",
+                             reranking: bool = False,
+                             semantic_config_name: str = "default-semantic-config") -> List[Dict[str, Any]]:
+        """
+        Perform a hybrid search combining traditional keyword search with vector search, while taking filtering parameters.
+        Args:
+            query_text: The search query text
+            vector_fields: List of fields to perform vector search on (default: ["text_vector"])
+            display_fields: List of fields to display in the results
+            search_options: Additional search options
+            use_semantic_search: Whether to use semantic search capabilities
+            top: The number of search results to retrieve.
+            vectorized_query_kind: The kind of vector query being performed. Required. Known values are: "vector" and "text".
+            reranking: Whether to enable reranking of the results based on the vector search.
+            semantic_config_name: The name of the semantic configuration to use
+        Returns:
+            A list of search results
+        """
+        # Default vector fields if not provided
+        if vector_fields is None:
+            vector_fields = "text_vector"
+        
+        # Create vectorized query
+        vectorized_query = VectorizedQuery(vector=query_vector, kind=vectorized_query_kind, k_nearest_neighbors=50, fields=vector_fields)
+        
+        # Default search options
+        default_options: Dict[str, Any] = {
+            "search_text": query_text,  # Traditional keyword search
+            "vector_queries": [vectorized_query],  # Vector search component
+            "top": top,
+            "select": display_fields,
+            "include_total_count": True,
+        }
+        
+        # Add semantic search if requested
+        if use_semantic_search:
+            default_options.update({
+                "query_type": "semantic",
+                "semantic_configuration_name": semantic_config_name,
+                "query_caption": "extractive", 
+                "query_answer": "extractive",
+            })
+        
+        # Update with any user-provided options
+        if search_options:
+            default_options.update(search_options)
+
+        # Add filter if provided
+        if filter_by in ["", " ", None, "None"]:
+            filter_expr = None
+        else:
+            filter_expr = [f"{filter_by} eq '{str(f)}'" for f in filter_vals]
+            filter_expr = " or ".join(filter_expr)
+            default_options.update({"filter_expr": filter_expr})
+        
+        # Execute the search
+        search_client = self.get_search_client()
+        results = search_client.search(**default_options)
+        
+        # Process and return the results
+        processed_results = []
+        for result in results:
+            processed_result = dict(result)
+            processed_results.append(processed_result)
+        
+        return processed_results   
+    
 from docx.document import Document as DocumentObject
 from docx.text.paragraph import Paragraph
 from docx.table import Table
@@ -2702,6 +2779,8 @@ class MultiProcessHandler:
             'functional_subarea': provided_dict.get('functional_subarea', ''),
             'process_group': provided_dict.get('process_group', ''),
             'process_subgroup': provided_dict.get('process_subgroup', ''),
+            'systems_manuals_used': ', '.join(provided_dict.get('systems_manuals_used', [])),
+            'forms_documents': ', '.join(provided_dict.get('forms_documents', [])),
             'reference_documents': ', '.join(provided_dict.get('reference_documents', [])),
             'related_products': ', '.join(provided_dict.get('related_products', [])),
             'additional_information': provided_dict.get('additional_information', ''),

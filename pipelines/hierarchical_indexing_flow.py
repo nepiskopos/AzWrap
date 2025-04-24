@@ -14,7 +14,7 @@ from AzWrap.wrapper import Container, DocParsing, MultiProcessHandler, OpenAICli
 import azure.search.documents.indexes.models as azsdim
 from docx import Document
 from dotenv import load_dotenv
-from azure.search.documents.indexes.models import SearchField, SimpleField, SearchableField, SearchFieldDataType
+from azure.search.documents.indexes.models import SearchField, SimpleField, SearchableField
 
 # Import the logger module from current directory
 from logger import get_logger
@@ -112,6 +112,8 @@ class HierarchicalIndexingFlow:
             create_field("functional_subarea", "String", searchable=True, retrievable=True),
             create_field("process_group", "String", searchable=True, retrievable=True),
             create_field("process_subgroup", "String", searchable=True, retrievable=True),
+            create_field("systems_manuals_used", "String", searchable=True, retrievable=True),
+            create_field("forms_documents", "String", searchable=True, retrievable=True),
             create_field("reference_documents", "String", searchable=True, retrievable=True),
             create_field("related_products", "String", searchable=True, retrievable=True),
             create_field("additional_information", "String", searchable=True, retrievable=True),
