@@ -8,6 +8,7 @@ from collections import defaultdict
 from enum import Enum
 from time import time 
 from typing import Any, Callable, List, Dict, Optional, Tuple, Union, ClassVar
+from datetime import datetime, timezone # Add datetime imports
 
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.core.credentials import AccessToken, TokenCredential
@@ -438,10 +439,10 @@ class Container:
         
     def get_blob_content(self, blob_name: str) -> bytes:
         """
-        Get the content of a specific blob using its BlobProperties
+        Get the content of a specific blob using its name
         
         Args:
-            blob_properties: BlobProperties object for the blob to retrieve
+            blob_name: Name of the blob to retrieve
             
         Returns:
             bytes: The content of the blob
@@ -476,6 +477,36 @@ class Container:
         """
         return self.get_blob_content(blob_properties.name)
     
+    def get_blob_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Retrieves metadata for all blobs in the container.
+        Does NOT download content or generate hash.
+
+        Returns:
+            Dict mapping blob name to its metadata (last_modified, size, etag).
+        """
+        print(f"Retrieving metadata for blobs in container '{self.container_client.container_name}'...")
+        blob_metadata = {}
+        try:
+            blobs: List[BlobProperties] = self.get_blobs() # Use self.get_blobs()
+            print(f"Found {len(blobs)} blobs in container.")
+            for blob_prop in blobs:
+                try:
+                    # Ensure last_modified is timezone-aware (UTC)
+                    last_modified_utc = blob_prop.last_modified.astimezone(timezone.utc)
+
+                    blob_metadata[blob_prop.name] = {
+                        'name': blob_prop.name,
+                        'last_modified': last_modified_utc,
+                        'size': blob_prop.size,
+                        'etag': blob_prop.etag
+                    }
+                except Exception as e:
+                    print(f"Error processing blob '{blob_prop.name}': {e}") # Use print or setup class logger
+            print(f"Successfully retrieved metadata for {len(blob_metadata)} blobs.")
+        except Exception as e:
+            print(f"Failed to list or process blobs in container: {e}") # Use print or setup class logger
+        return blob_metadata
         
     def get_docx_content(self, blob_name: str) -> str:
         """
@@ -1161,14 +1192,16 @@ class SearchService:
         return SearchIndex(self, index_name, fields, vector_search)
     
     def add_semantic_configuration(self,
-                                  title_field: str = "title",
-                                  content_fields: Optional[List[str]] = None,
-                                  keyword_fields: Optional[List[str]] = None,
-                                  semantic_config_name: str = "default-semantic-config") -> azsdim.SearchIndex:
+                                   index_name: str,
+                                   title_field: str = "title",
+                                   content_fields: Optional[List[str]] = None,
+                                   keyword_fields: Optional[List[str]] = None,
+                                   semantic_config_name: str = "default-semantic-config") -> azsdim.SearchIndex:
         """
         Add semantic configuration to the index.
         
         Args:
+            index_name: The name of the index to be modified
             title_field: The name of the title field
             content_fields: List of content fields to prioritize
             keyword_fields: List of keyword fields to prioritize
@@ -1184,7 +1217,7 @@ class SearchService:
             keyword_fields = ["tags"]
         
         # Get the existing index
-        index = self.get_index_client().get_index(self.index_name)
+        index = self.get_index_client().get_index(index_name)
         
         # Define semantic configuration
         semantic_config = azsdim.SemanticConfiguration(
@@ -1669,6 +1702,80 @@ class SearchIndex:
             )
         return search_client  
 
+    def get_index_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Retrieves metadata for all documents in the search index.
+
+        Returns:
+            Dict mapping blob name (assuming a 'blob_name' field exists) to its index metadata.
+        """
+        print(f"Retrieving metadata from index '{self.index_name}'...")
+        index_metadata = {}
+        try:
+            search_client = self.get_search_client()
+            
+            # Get fields from index definition
+            index_client = self.search_service.get_index_client()
+            index = index_client.get_index(self.index_name)
+            
+            # Determine which fields to select based on the index definition
+            field_names = [field.name for field in index.fields]
+            
+            # Check for required fields
+            id_field = next((field.name for field in index.fields if field.key), "id")
+            blob_name_field = "blob_name" if "blob_name" in field_names else None
+            blob_modified_field = "blob_last_modified" if "blob_last_modified" in field_names else None
+            
+            # Prepare select fields string for the query
+            select_fields = id_field
+            if blob_name_field:
+                select_fields += f",{blob_name_field}"
+            if blob_modified_field:
+                select_fields += f",{blob_modified_field}"
+                
+            print(f"Using fields for metadata query: {select_fields}")
+            
+            results = list(search_client.search(search_text="*", select=select_fields, include_total_count=True))
+            total_count = search_client.get_document_count() # More reliable way to get count
+            print(f"Found {total_count} documents in index '{self.index_name}'.")
+
+            for doc in results:
+                # Use the detected blob name field or fall back to id if not available
+                blob_name = doc.get(blob_name_field) if blob_name_field else doc.get(id_field)
+                if blob_name:
+                    # Create metadata entry
+                    metadata = {
+                        'id': doc.get(id_field),  # The document key in the index
+                    }
+                    
+                    # Add blob_name if available
+                    if blob_name_field:
+                        metadata['blob_name'] = blob_name
+                    
+                    # Add modified date if available and convert to timezone-aware datetime
+                    if blob_modified_field:
+                        last_modified_str = doc.get(blob_modified_field)
+                        if last_modified_str:
+                            try:
+                                # Attempt parsing with timezone info
+                                last_modified_dt = datetime.fromisoformat(last_modified_str.replace('Z', '+00:00'))
+                                if last_modified_dt.tzinfo is None:
+                                    last_modified_dt = last_modified_dt.replace(tzinfo=timezone.utc) # Assume UTC if no tzinfo
+                                metadata['last_modified'] = last_modified_dt
+                            except ValueError:
+                                print(f"Could not parse timestamp '{last_modified_str}' for doc id {doc.get(id_field)}. Skipping timestamp comparison.")
+                    
+                    # Store all the metadata for this blob
+                    index_metadata[blob_name] = metadata
+                else:
+                    print(f"Document with ID '{doc.get(id_field)}' in index is missing blob identifier. Skipping.")
+                    
+            print(f"Successfully retrieved metadata for {len(index_metadata)} documents from index.")
+
+        except Exception as e:
+            print(f"Failed to retrieve documents from index '{self.index_name}': {e}")
+        return index_metadata
+
     def extend_index_schema(self, new_fields: List[azsdim.SearchField] ) -> Optional[bool]:
         """
         Extend an Azure AI Search index schema with new fields
@@ -2039,19 +2146,39 @@ class SearchIndex:
     def perform_hybrid_search(self,
                              query_text: str,
                              query_vector: List[float],
+                             display_fields: List[str] = None,
+                             search_fields: List[str] = None,
+                             include_total_count: bool = True,
+                             filter_by: str = None,
+                             filter_vals: list = None,
                              vector_fields: Optional[str] = None,
-                             search_options: Optional[Dict[str, Any]] = None,
+                             vectorized_query_kind: str = "vector",
+                             exhaustive: bool = False,
+                             k_nearest_neighbors_vector_search: int = 50,
                              use_semantic_search: bool = False,
-                             top: int = 10,
-                             semantic_config_name: str = "default-semantic-config") -> List[Dict[str, Any]]:
+                             top: int = 5,
+                             semantic_config_name: str = "default-semantic-config",
+                             query_answer: str = "extractive",
+                             search_options: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Perform a hybrid search combining traditional keyword search with vector search.
         Args:
             query_text: The search query text
-            vector_fields: List of fields to perform vector search on (default: ["text_vector"])
-            search_options: Additional search options
-            use_semantic_search: Whether to use semantic search capabilities
+            query_vector: The vector representation of the query
+            display_fields: List of fields to display in the results
+            search_fields: List of fields to perform search in
+            include_total_count: Whether to include the total count of results
+            filter_by: The field to filter by
+            filter_vals: The field values to create fitering expressions with
+            vector_fields: List of fields to perform vector search on
+            vectorized_query_kind: The kind of vector query being performed. Known values are: "vector" and "text".
+            exhaustive: Whether to trigger an exhaustive k-nearest neighbor search across all vectors within the vector index
+            k_nearest_neighbors_vector_search: Number of nearest neighbors to return as top hits
+            use_semantic_search: Whether to use a semantic search configuration
+            top: The number of search results to retrieve
             semantic_config_name: The name of the semantic configuration to use
+            query_answer: This parameter is only valid if the query type is 'semantic'. If set, the query returns answers extracted from key passages in the highest ranked documents
+            search_options: Additional search options
         Returns:
             A list of search results
         """
@@ -2060,16 +2187,23 @@ class SearchIndex:
             vector_fields = "text_vector"
         
         # Create vectorized query
-        vectorized_query = VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields=vector_fields)
+        vectorized_query = VectorizedQuery(vector=query_vector, 
+                                           kind=vectorized_query_kind, 
+                                           k_nearest_neighbors=k_nearest_neighbors_vector_search, 
+                                           fields=vector_fields, 
+                                           exhaustive=exhaustive)
         
         # Default search options
         default_options: Dict[str, Any] = {
             "search_text": query_text,  # Traditional keyword search
             "vector_queries": [vectorized_query],  # Vector search component
             "top": top,
-            "select": "*",
-            "include_total_count": True,
+            "select": display_fields,
+            "include_total_count": include_total_count,
         }
+
+        if search_fields:
+            default_options["search_fields"] = search_fields
         
         # Add semantic search if requested
         if use_semantic_search:
@@ -2077,8 +2211,16 @@ class SearchIndex:
                 "query_type": "semantic",
                 "semantic_configuration_name": semantic_config_name,
                 "query_caption": "extractive", 
-                "query_answer": "extractive",
+                "query_answer": query_answer,
             })
+        
+        # Add filter if provided
+        if filter_by in ["", " ", None, "None"]:
+            filter_expr = None
+        else:
+            filter_expr = [f"{filter_by} eq '{str(f)}'" for f in filter_vals]
+            filter_expr = " or ".join(filter_expr)
+            default_options.update({"filter": filter_expr})
         
         # Update with any user-provided options
         if search_options:
@@ -2095,14 +2237,14 @@ class SearchIndex:
             processed_results.append(processed_result)
         
         return processed_results    
-    
+        
 from docx.document import Document as DocumentObject
 from docx.text.paragraph import Paragraph
 from docx.table import Table
 from docx.section import Section
 class DocParsing:
     """
-    Initialize the DocParsing class.
+    Handles content from "docx" type files, to process them into documents for usage by "MultiProcessHandler" class. Utilizes the python-docx package.
 
     Parameters:
         doc_instance: python-docx Document object to be parsed
@@ -2498,7 +2640,7 @@ class DocParsing:
                 continue
 
             filename_base = process_key.split('_header_')[-1] if '_header_' in process_key else process_key.replace('_single_process', '')
-            safe_filename_base = re.sub(r'[\\/*?:"<>| ]', '_', filename_base)
+            safe_filename_base = re.sub(r'[\\/*?:"<>|]', '_', filename_base)
             max_len = 100 # Max filename length
             safe_filename_base = safe_filename_base[:max_len] if len(safe_filename_base) > max_len else safe_filename_base
 
@@ -2638,6 +2780,8 @@ class MultiProcessHandler:
             'functional_subarea': provided_dict.get('functional_subarea', ''),
             'process_group': provided_dict.get('process_group', ''),
             'process_subgroup': provided_dict.get('process_subgroup', ''),
+            'systems_manuals_used': ', '.join(provided_dict.get('systems_manuals_used', [])),
+            'forms_documents': ', '.join(provided_dict.get('forms_documents', [])),
             'reference_documents': ', '.join(provided_dict.get('reference_documents', [])),
             'related_products': ', '.join(provided_dict.get('related_products', [])),
             'additional_information': provided_dict.get('additional_information', ''),
@@ -2709,10 +2853,10 @@ class MultiProcessHandler:
 
     def prepare_for_upload(self, provided_dict) -> List[Dict]:
         """
-        Prepare all records for upload.
+        Prepares all records for upload.
         
         Coordinates the generation of process IDs and the preparation
-        of both core and detailed records for database upload.
+        of both core and detailed records for upload.
 
         Parameters:
             provided_dict: The process' dictionary
@@ -2867,3 +3011,4 @@ class MultiProcessHandler:
                 print(f"Successfully uploaded records for {record['core'].get('process_name', 'Unknown')}")
         except Exception as e:
             print(f"Error uploading records: {e}")
+
