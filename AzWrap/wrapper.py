@@ -1225,14 +1225,16 @@ class SearchService:
         return SearchIndex(self, index_name, fields, vector_search)
     
     def add_semantic_configuration(self,
-                                  title_field: str = "title",
-                                  content_fields: Optional[List[str]] = None,
-                                  keyword_fields: Optional[List[str]] = None,
-                                  semantic_config_name: str = "default-semantic-config") -> azsdim.SearchIndex:
+                                   index_name: str,
+                                   title_field: str = "title",
+                                   content_fields: Optional[List[str]] = None,
+                                   keyword_fields: Optional[List[str]] = None,
+                                   semantic_config_name: str = "default-semantic-config") -> azsdim.SearchIndex:
         """
         Add semantic configuration to the index.
         
         Args:
+            index_name: The name of the index to be modified
             title_field: The name of the title field
             content_fields: List of content fields to prioritize
             keyword_fields: List of keyword fields to prioritize
@@ -1248,7 +1250,7 @@ class SearchService:
             keyword_fields = ["tags"]
         
         # Get the existing index
-        index = self.get_index_client().get_index(self.index_name)
+        index = self.get_index_client().get_index(index_name)
         
         # Define semantic configuration
         semantic_config = azsdim.SemanticConfiguration(
@@ -2103,19 +2105,39 @@ class SearchIndex:
     def perform_hybrid_search(self,
                              query_text: str,
                              query_vector: List[float],
+                             display_fields: List[str] = None,
+                             search_fields: List[str] = None,
+                             include_total_count: bool = True,
+                             filter_by: str = None,
+                             filter_vals: list = None,
                              vector_fields: Optional[str] = None,
-                             search_options: Optional[Dict[str, Any]] = None,
+                             vectorized_query_kind: str = "vector",
+                             exhaustive: bool = False,
+                             k_nearest_neighbors_vector_search: int = 50,
                              use_semantic_search: bool = False,
-                             top: int = 10,
-                             semantic_config_name: str = "default-semantic-config") -> List[Dict[str, Any]]:
+                             top: int = 5,
+                             semantic_config_name: str = "default-semantic-config",
+                             query_answer: str = "extractive",
+                             search_options: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Perform a hybrid search combining traditional keyword search with vector search.
         Args:
             query_text: The search query text
-            vector_fields: List of fields to perform vector search on (default: ["text_vector"])
-            search_options: Additional search options
-            use_semantic_search: Whether to use semantic search capabilities
+            query_vector: The vector representation of the query
+            display_fields: List of fields to display in the results
+            search_fields: List of fields to perform search in
+            include_total_count: Whether to include the total count of results
+            filter_by: The field to filter by
+            filter_vals: The field values to create fitering expressions with
+            vector_fields: List of fields to perform vector search on
+            vectorized_query_kind: The kind of vector query being performed. Known values are: "vector" and "text".
+            exhaustive: Whether to trigger an exhaustive k-nearest neighbor search across all vectors within the vector index
+            k_nearest_neighbors_vector_search: Number of nearest neighbors to return as top hits
+            use_semantic_search: Whether to use a semantic search configuration
+            top: The number of search results to retrieve
             semantic_config_name: The name of the semantic configuration to use
+            query_answer: This parameter is only valid if the query type is 'semantic'. If set, the query returns answers extracted from key passages in the highest ranked documents
+            search_options: Additional search options
         Returns:
             A list of search results
         """
@@ -2124,16 +2146,23 @@ class SearchIndex:
             vector_fields = "text_vector"
         
         # Create vectorized query
-        vectorized_query = VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields=vector_fields)
+        vectorized_query = VectorizedQuery(vector=query_vector, 
+                                           kind=vectorized_query_kind, 
+                                           k_nearest_neighbors=k_nearest_neighbors_vector_search, 
+                                           fields=vector_fields, 
+                                           exhaustive=exhaustive)
         
         # Default search options
         default_options: Dict[str, Any] = {
             "search_text": query_text,  # Traditional keyword search
             "vector_queries": [vectorized_query],  # Vector search component
             "top": top,
-            "select": "*",
-            "include_total_count": True,
+            "select": display_fields,
+            "include_total_count": include_total_count,
         }
+
+        if search_fields:
+            default_options["search_fields"] = search_fields
         
         # Add semantic search if requested
         if use_semantic_search:
@@ -2141,8 +2170,16 @@ class SearchIndex:
                 "query_type": "semantic",
                 "semantic_configuration_name": semantic_config_name,
                 "query_caption": "extractive", 
-                "query_answer": "extractive",
+                "query_answer": query_answer,
             })
+        
+        # Add filter if provided
+        if filter_by in ["", " ", None, "None"]:
+            filter_expr = None
+        else:
+            filter_expr = [f"{filter_by} eq '{str(f)}'" for f in filter_vals]
+            filter_expr = " or ".join(filter_expr)
+            default_options.update({"filter": filter_expr})
         
         # Update with any user-provided options
         if search_options:
@@ -2159,84 +2196,7 @@ class SearchIndex:
             processed_results.append(processed_result)
         
         return processed_results    
-    
-    def perform_filtered_hybrid_search(self,
-                             query_text: str,
-                             query_vector: List[float],
-                             filter_by: str = None,
-                             filter_vals: list = None,
-                             vector_fields: Optional[str] = None,
-                             display_fields: Optional[str] = None,
-                             search_options: Optional[Dict[str, Any]] = None,
-                             use_semantic_search: bool = False,
-                             top: int = 5,
-                             vectorized_query_kind: str = "vector",
-                             reranking: bool = False,
-                             semantic_config_name: str = "default-semantic-config") -> List[Dict[str, Any]]:
-        """
-        Perform a hybrid search combining traditional keyword search with vector search, while taking filtering parameters.
-        Args:
-            query_text: The search query text
-            vector_fields: List of fields to perform vector search on (default: ["text_vector"])
-            display_fields: List of fields to display in the results
-            search_options: Additional search options
-            use_semantic_search: Whether to use semantic search capabilities
-            top: The number of search results to retrieve.
-            vectorized_query_kind: The kind of vector query being performed. Required. Known values are: "vector" and "text".
-            reranking: Whether to enable reranking of the results based on the vector search.
-            semantic_config_name: The name of the semantic configuration to use
-        Returns:
-            A list of search results
-        """
-        # Default vector fields if not provided
-        if vector_fields is None:
-            vector_fields = "text_vector"
         
-        # Create vectorized query
-        vectorized_query = VectorizedQuery(vector=query_vector, kind=vectorized_query_kind, k_nearest_neighbors=50, fields=vector_fields)
-        
-        # Default search options
-        default_options: Dict[str, Any] = {
-            "search_text": query_text,  # Traditional keyword search
-            "vector_queries": [vectorized_query],  # Vector search component
-            "top": top,
-            "select": display_fields,
-            "include_total_count": True,
-        }
-        
-        # Add semantic search if requested
-        if use_semantic_search:
-            default_options.update({
-                "query_type": "semantic",
-                "semantic_configuration_name": semantic_config_name,
-                "query_caption": "extractive", 
-                "query_answer": "extractive",
-            })
-        
-        # Update with any user-provided options
-        if search_options:
-            default_options.update(search_options)
-
-        # Add filter if provided
-        if filter_by in ["", " ", None, "None"]:
-            filter_expr = None
-        else:
-            filter_expr = [f"{filter_by} eq '{str(f)}'" for f in filter_vals]
-            filter_expr = " or ".join(filter_expr)
-            default_options.update({"filter_expr": filter_expr})
-        
-        # Execute the search
-        search_client = self.get_search_client()
-        results = search_client.search(**default_options)
-        
-        # Process and return the results
-        processed_results = []
-        for result in results:
-            processed_result = dict(result)
-            processed_results.append(processed_result)
-        
-        return processed_results   
-    
 from docx.document import Document as DocumentObject
 from docx.text.paragraph import Paragraph
 from docx.table import Table

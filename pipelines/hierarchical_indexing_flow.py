@@ -45,33 +45,7 @@ class HierarchicalIndexingFlow:
         self.search_service = search_service
         self.vector_search_profile_name = vector_search_profile_name
         self.failed_files = []
-        
-    def _validate_config(self, indexing_format: str, semantic_config: Dict[str, Any]) -> None:
-        """
-        Validate configuration parameters.
-        
-        Args:
-            indexing_format: The indexing template
-            semantic_config: Semantic configuration
-            
-        Raises:
-            ValueError: If any required configuration is missing or invalid
-        """
-        # Check if indexing format is valid JSON
-        try:
-            if not indexing_format or indexing_format.isspace():
-                raise ValueError("Indexing format is empty")
-            json.loads(indexing_format)
-        except json.JSONDecodeError:
-            raise ValueError("Indexing format is not valid JSON")
-        
-        # Check semantic config has all required fields
-        required_semantic_fields = ["title_field", "content_fields", "keyword_fields", "semantic_config_name"]
-        if semantic_config:
-            missing_fields = [field for field in required_semantic_fields if field not in semantic_config]
-            if missing_fields:
-                raise ValueError(f"Semantic configuration is missing required fields: {missing_fields}")
-                
+                        
     def _create_index_fields(self) -> Tuple[List[Union[SearchField, SimpleField, SearchableField]], 
                                              List[Union[SearchField, SimpleField, SearchableField]]]:
         """
@@ -141,7 +115,7 @@ class HierarchicalIndexingFlow:
         return core_index_fields, detail_index_fields
     
     def _setup_indices(self, core_index_fields: List, detail_index_fields: List, 
-                      vector_search: azsdim.VectorSearch, semantic_config: Optional[Dict[str, Any]]) -> Tuple[str, str]:
+                      vector_search: azsdim.VectorSearch) -> Tuple[str, str]:
         """
         Set up core and detail indices in Azure Cognitive Search.
         
@@ -149,7 +123,6 @@ class HierarchicalIndexingFlow:
             core_index_fields: List of fields for core index
             detail_index_fields: List of fields for detail index
             vector_search: Vector search configuration
-            semantic_config: Semantic configuration
             
         Returns:
             Tuple of core and detail index names
@@ -169,12 +142,26 @@ class HierarchicalIndexingFlow:
             fields=core_index_fields, 
             vector_search=vector_search
         )
-        
+        core_index_semantic_config = {
+            "title_field": "process_name",
+            "content_fields": ["non_llm_summary"],
+            "keyword_fields": ["process_name"],
+            "semantic_config_name": "core-semantic-config"
+            }
+        self.search_service.add_semantic_configuration(core_index_name, core_index_semantic_config['title_field'], core_index_semantic_config['content_fields'], core_index_semantic_config['keyword_fields'], core_index_semantic_config['semantic_config_name'])
+
         self.search_service.create_or_update_index(
             index_name=detail_index_name, 
             fields=detail_index_fields, 
             vector_search=vector_search
         )
+        detail_index_semantic_config = {
+            "title_field": "step_name",
+            "content_fields": ["step_content", "step_name"],
+            "keyword_fields": ["step_name"],
+            "semantic_config_name": "detail-semantic-config"
+            }
+        self.search_service.add_semantic_configuration(detail_index_name, detail_index_semantic_config['title_field'], detail_index_semantic_config['content_fields'], detail_index_semantic_config['keyword_fields'], detail_index_semantic_config['semantic_config_name'])
         
         logger.info("Successfully created or updated indices")
         return core_index_name, detail_index_name
@@ -236,7 +223,6 @@ class HierarchicalIndexingFlow:
            container: Container, 
            openai_client: OpenAIClient, 
            indexing_format: str, 
-           semantic_config: Optional[Dict[str, Any]], 
            vector_search: azsdim.VectorSearch) -> Dict[str, Any]:
         """
         Runs the hierarchical indexing flow.
@@ -245,7 +231,6 @@ class HierarchicalIndexingFlow:
             container: The container to read blob files from
             openai_client: The OpenAIClient class instance for generating embeddings
             indexing_format: The indexing template
-            semantic_config: Semantic configuration to be added to the Index
             vector_search: The vector search configuration for embeddings in Index fields
         
         Returns:
@@ -259,16 +244,22 @@ class HierarchicalIndexingFlow:
         total_files = 0
         
         try:
-            # Validate configuration
+            # Validate format
             logger.info("Starting hierarchical indexing flow")
-            self._validate_config(indexing_format, semantic_config)
+
+            try:
+                if not indexing_format or indexing_format.isspace():
+                    raise ValueError("Indexing format is empty")
+                json.loads(indexing_format)
+            except json.JSONDecodeError:
+                raise ValueError("Indexing format is not valid JSON")
             
             # Create index fields
             core_index_fields, detail_index_fields = self._create_index_fields()
             
             # Set up indices
             core_index_name, detail_index_name = self._setup_indices(
-                core_index_fields, detail_index_fields, vector_search, semantic_config
+                core_index_fields, detail_index_fields, vector_search
             )
             
             # Get core and detail index objects
@@ -475,17 +466,8 @@ def main():
             json.loads(indexing_format)
         except json.JSONDecodeError as e:
             raise ValueError(f"Indexing template is not valid JSON: {str(e)}")
-
-        # 8. Set up semantic configuration for Index
-        logger.info("Setting up semantic configuration...")
-        semantic_config = {
-            "title_field": "process_name",
-            "content_fields": ["header_content"],
-            "keyword_fields": ["domain"],
-            "semantic_config_name": "main-data-test-semantic-config"
-        }
         
-        # 9. Set up Vector Search configuration
+        # 8. Set up Vector Search configuration
         logger.info("Setting up vector search configuration...")
         vector_search_config = {
             "algorithm_name": "vector-config",
@@ -499,7 +481,7 @@ def main():
             vector_search_config['metric']
         )
 
-        # 10. Run the hierarchical indexing flow
+        # 9. Run the hierarchical indexing flow
         logger.info("Initializing hierarchical indexing flow...")
         hierarchical_indexing_flow = HierarchicalIndexingFlow(search_service)
         
@@ -508,11 +490,10 @@ def main():
             container,
             openai_client,
             indexing_format,
-            semantic_config,
             vector_search
         )
         
-        # 11. Report final results
+        # 10. Report final results
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
