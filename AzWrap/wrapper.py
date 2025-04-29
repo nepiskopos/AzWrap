@@ -2244,7 +2244,7 @@ from docx.table import Table
 from docx.section import Section
 class DocParsing:
     """
-    Initialize the DocParsing class.
+    Handles content from "docx" type files, to process them into documents for usage by "MultiProcessHandler" class. Utilizes the python-docx package.
 
     Parameters:
         doc_instance: python-docx Document object to be parsed
@@ -2853,7 +2853,7 @@ class MultiProcessHandler:
 
     def prepare_for_upload(self, provided_dict) -> List[Dict]:
         """
-        Prepare all records for upload.
+        Prepares all records for upload.
         
         Coordinates the generation of process IDs and the preparation
         of both core and detailed records for upload.

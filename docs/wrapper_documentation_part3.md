@@ -45,6 +45,7 @@ The `Container` class represents a blob container in Azure Storage.
 **Key Methods**:
 - `get_blob_names()`: Lists all blob names in the container
 - `get_blobs()`: Lists all blobs with their properties
+- `process_blob_by_type(blob_name)`: Processes blob files of type "MS_WORD", "MS_EXCEL", "PDF", or just plain text, and returns their content in the appropriate format
 
 **Usage Example**:
 ```python
@@ -81,8 +82,11 @@ The `SearchService` class represents an Azure AI Search service and provides met
 - `get_index_client()`: Gets a search index client
 - `get_indexes()`: Lists all indexes in the search service
 - `get_index(index_name)`: Gets a specific index by name
+- `add_simple_field(field_args)`: Execute the Azure "SimpleField" function
+- `add_searchable_field(field_args)`: Execute the Azure "SearchableField" function
+- `add_search_field(field_args)`: Return a "SearchField" object
 - `create_or_update_index(index_name, fields)`: Creates or updates an index
-- `add_semantic_configuration()`: Adds semantic search configuration to an index
+- `add_semantic_configuration(config_args)`: Adds semantic search configuration to an index
 
 **Usage Example**:
 ```python
@@ -97,23 +101,24 @@ for index in indexes:
 # Get a specific index
 index = search_service.get_index("my-index")
 
-# Create or update an index
-from azure.search.documents.indexes.models import (
-    SearchField, SearchFieldDataType, SimpleField, SearchableField
-)
-
+# Add SearchFields
 fields = [
-    SimpleField(name="id", type=SearchFieldDataType.String, key=True),
-    SearchableField(name="content", type=SearchFieldDataType.String, analyzer_name="en.microsoft")
+    search_service.add_simple_field("id", "String", searchable=True, filterable=True, retrievable=True, is_key=True),
+    search_service.add_searchable_field("content_field", "String", searchable=True, filterable=True, retrievable=True),
+    search_service.add_search_field("vector_field", "Collection(Edm.Single)", searchable=True,
+                        vector_search_dimensions=3072, vector_search_profile_name="vector_search_profile_name")
 ]
 
+# Create or update an index
 index = search_service.create_or_update_index("my-index", fields)
 
 # Add semantic configuration
 search_service.add_semantic_configuration(
+    index_name="my-index",
     title_field="title",
     content_fields=["content"],
-    keyword_fields=["keywords"]
+    keyword_fields=["keywords"],
+    semantic_config_name="semantic_config_name"
 )
 ```
 
@@ -134,6 +139,7 @@ The `SearchIndex` class represents an index in Azure AI Search and provides meth
 - `get_search_client()`: Gets a search client for the index
 - `extend_index_schema(new_fields)`: Extends the index schema with new fields
 - `process_data_in_batches()`: Processes data in batches for large operations
+- `upload_rows()`: Directly uploads documents to new rows of the specified Index
 - `copy_index_data()`: Copies data from one index to another
 - `copy_index_structure()`: Copies the structure of the index to a new index
 - `perform_search()`: Performs a basic search
@@ -146,10 +152,8 @@ The `SearchIndex` class represents an index in Azure AI Search and provides meth
 search_client = index.get_search_client()
 
 # Extend the index schema with new fields
-from azure.search.documents.indexes.models import SimpleField, SearchFieldDataType
-
 new_fields = [
-    SimpleField(name="category", type=SearchFieldDataType.String, filterable=True)
+    search_service.add_simple_field(name="category", type=SearchFieldDataType.String, filterable=True)
 ]
 
 index.extend_index_schema(new_fields)
@@ -165,7 +169,20 @@ for result in results:
 
 # Perform a hybrid search (keyword + vector)
 results = index.perform_hybrid_search(
-    search_text="example query",
-    vector_query=[0.1, 0.2, 0.3, ...],  # Vector embedding
-    top=10
+    query_text="example query",
+    query_vector=[0.1, 0.2, 0.3, ...],  # Vector embedding
+    display_fields=["content_field"],
+    search_fields=["content_field"],
+    include_total_count=True,
+    filter_by="additional_content_field",
+    filter_vals=["value_to_check"],
+    vector_fields=["vector_field"],
+    use_semantic_search=True,
+    top=10,
+    vectorized_query_kind=vectorized_query_kind,
+    exhaustive=True,
+    k_nearest_neighbors_vector_search=5,
+    semantic_config_name="semantic_config_name",
+    query_answer="exhaustive",
+    search_options=None
 )
