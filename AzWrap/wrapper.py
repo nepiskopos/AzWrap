@@ -8,6 +8,7 @@ from collections import defaultdict
 from enum import Enum
 from time import time 
 from typing import Any, Callable, List, Dict, Optional, Tuple, Union, ClassVar
+from datetime import datetime, timezone # Add datetime imports
 
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.core.credentials import AccessToken, TokenCredential
@@ -438,10 +439,10 @@ class Container:
         
     def get_blob_content(self, blob_name: str) -> bytes:
         """
-        Get the content of a specific blob using its BlobProperties
+        Get the content of a specific blob using its name
         
         Args:
-            blob_properties: BlobProperties object for the blob to retrieve
+            blob_name: Name of the blob to retrieve
             
         Returns:
             bytes: The content of the blob
@@ -476,70 +477,36 @@ class Container:
         """
         return self.get_blob_content(blob_properties.name)
     
-    def get_blob_info(self, blob_name: str) -> Dict[str, Any]:
+    def get_blob_metadata(self) -> Dict[str, Dict[str, Any]]:
         """
-        Get comprehensive information about a specific file (blob) identified by its name
-        
-        Args:
-            blob_name: Name of the blob/file to retrieve information for
-                       (includes the full path within the container if in a virtual folder)
-            
+        Retrieves metadata for all blobs in the container.
+        Does NOT download content or generate hash.
+
         Returns:
-            Dict[str, Any]: Dictionary containing all available information about the blob/file
-            
-        Raises:
-            ValueError: If the blob/file cannot be found or accessed
-            
-        Example:
-            info = container.get_blob_info("folder/myfile.txt")
-            print(f"File size: {info['size_bytes']} bytes")
-            print(f"Last modified: {info['last_modified']}")
+            Dict mapping blob name to its metadata (last_modified, size, etag).
         """
+        print(f"Retrieving metadata for blobs in container '{self.container_client.container_name}'...")
+        blob_metadata = {}
         try:
-            # Get the blob client for the specific blob
-            blob_client = self.container_client.get_blob_client(blob_name)
-            
-            # Get blob properties
-            properties = blob_client.get_blob_properties()
-            
-            # Create a comprehensive info dictionary
-            blob_info = {
-                "name": blob_name,
-                "path": blob_name,
-                "size_bytes": properties.size,
-                "content_type": properties.content_settings.content_type if properties.content_settings else None,
-                "creation_time": properties.creation_time,
-                "last_modified": properties.last_modified,
-                "etag": properties.etag,
-                "content_md5": properties.content_settings.content_md5 if properties.content_settings else None,
-                "content_encoding": properties.content_settings.content_encoding if properties.content_settings else None,
-                "content_language": properties.content_settings.content_language if properties.content_settings else None,
-                "cache_control": properties.content_settings.cache_control if properties.content_settings else None,
-                "content_disposition": properties.content_settings.content_disposition if properties.content_settings else None,
-                "lease_status": properties.lease.status if properties.lease else None,
-                "lease_state": properties.lease.state if properties.lease else None,
-                "access_tier": properties.blob_tier,
-                "metadata": properties.metadata,
-                "blob_type": self.get_blob_type(blob_name),
-            }
-            
-            # Add container info
-            blob_info["container_name"] = self.container_client.container_name
-            
-            # Extract folder path if the blob is in a virtual folder
-            if '/' in blob_name:
-                folder_path = '/'.join(blob_name.split('/')[:-1])
-                filename = blob_name.split('/')[-1]
-                blob_info["folder_path"] = folder_path
-                blob_info["filename"] = filename
-            else:
-                blob_info["folder_path"] = ""
-                blob_info["filename"] = blob_name
-                
-            return blob_info
-            
+            blobs: List[BlobProperties] = self.get_blobs() # Use self.get_blobs()
+            print(f"Found {len(blobs)} blobs in container.")
+            for blob_prop in blobs:
+                try:
+                    # Ensure last_modified is timezone-aware (UTC)
+                    last_modified_utc = blob_prop.last_modified.astimezone(timezone.utc)
+
+                    blob_metadata[blob_prop.name] = {
+                        'name': blob_prop.name,
+                        'last_modified': last_modified_utc,
+                        'size': blob_prop.size,
+                        'etag': blob_prop.etag
+                    }
+                except Exception as e:
+                    print(f"Error processing blob '{blob_prop.name}': {e}") # Use print or setup class logger
+            print(f"Successfully retrieved metadata for {len(blob_metadata)} blobs.")
         except Exception as e:
-            raise ValueError(f"Error retrieving information for file '{blob_name}': {str(e)}")
+            print(f"Failed to list or process blobs in container: {e}") # Use print or setup class logger
+        return blob_metadata
         
     def get_docx_content(self, blob_name: str) -> str:
         """
@@ -1733,6 +1700,80 @@ class SearchIndex:
             )
         return search_client  
 
+    def get_index_metadata(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Retrieves metadata for all documents in the search index.
+
+        Returns:
+            Dict mapping blob name (assuming a 'blob_name' field exists) to its index metadata.
+        """
+        print(f"Retrieving metadata from index '{self.index_name}'...")
+        index_metadata = {}
+        try:
+            search_client = self.get_search_client()
+            
+            # Get fields from index definition
+            index_client = self.search_service.get_index_client()
+            index = index_client.get_index(self.index_name)
+            
+            # Determine which fields to select based on the index definition
+            field_names = [field.name for field in index.fields]
+            
+            # Check for required fields
+            id_field = next((field.name for field in index.fields if field.key), "id")
+            blob_name_field = "blob_name" if "blob_name" in field_names else None
+            blob_modified_field = "blob_last_modified" if "blob_last_modified" in field_names else None
+            
+            # Prepare select fields string for the query
+            select_fields = id_field
+            if blob_name_field:
+                select_fields += f",{blob_name_field}"
+            if blob_modified_field:
+                select_fields += f",{blob_modified_field}"
+                
+            print(f"Using fields for metadata query: {select_fields}")
+            
+            results = list(search_client.search(search_text="*", select=select_fields, include_total_count=True))
+            total_count = search_client.get_document_count() # More reliable way to get count
+            print(f"Found {total_count} documents in index '{self.index_name}'.")
+
+            for doc in results:
+                # Use the detected blob name field or fall back to id if not available
+                blob_name = doc.get(blob_name_field) if blob_name_field else doc.get(id_field)
+                if blob_name:
+                    # Create metadata entry
+                    metadata = {
+                        'id': doc.get(id_field),  # The document key in the index
+                    }
+                    
+                    # Add blob_name if available
+                    if blob_name_field:
+                        metadata['blob_name'] = blob_name
+                    
+                    # Add modified date if available and convert to timezone-aware datetime
+                    if blob_modified_field:
+                        last_modified_str = doc.get(blob_modified_field)
+                        if last_modified_str:
+                            try:
+                                # Attempt parsing with timezone info
+                                last_modified_dt = datetime.fromisoformat(last_modified_str.replace('Z', '+00:00'))
+                                if last_modified_dt.tzinfo is None:
+                                    last_modified_dt = last_modified_dt.replace(tzinfo=timezone.utc) # Assume UTC if no tzinfo
+                                metadata['last_modified'] = last_modified_dt
+                            except ValueError:
+                                print(f"Could not parse timestamp '{last_modified_str}' for doc id {doc.get(id_field)}. Skipping timestamp comparison.")
+                    
+                    # Store all the metadata for this blob
+                    index_metadata[blob_name] = metadata
+                else:
+                    print(f"Document with ID '{doc.get(id_field)}' in index is missing blob identifier. Skipping.")
+                    
+            print(f"Successfully retrieved metadata for {len(index_metadata)} documents from index.")
+
+        except Exception as e:
+            print(f"Failed to retrieve documents from index '{self.index_name}': {e}")
+        return index_metadata
+
     def extend_index_schema(self, new_fields: List[azsdim.SearchField] ) -> Optional[bool]:
         """
         Extend an Azure AI Search index schema with new fields
@@ -2115,6 +2156,9 @@ class SearchIndex:
             vector_fields: List of fields to perform vector search on (default: ["text_vector"])
             search_options: Additional search options
             use_semantic_search: Whether to use semantic search capabilities
+            top: The number of search results to retrieve.
+            vectorized_query_kind: The kind of vector query being performed. Required. Known values are: "vector" and "text".
+            reranking: Whether to enable reranking of the results based on the vector search.
             semantic_config_name: The name of the semantic configuration to use
         Returns:
             A list of search results
@@ -2124,7 +2168,7 @@ class SearchIndex:
             vector_fields = "text_vector"
         
         # Create vectorized query
-        vectorized_query = VectorizedQuery(vector=query_vector, k_nearest_neighbors=50, fields=vector_fields)
+        vectorized_query = VectorizedQuery(vector=query_vector, kind="vector", k_nearest_neighbors=50, fields=vector_fields)
         
         # Default search options
         default_options: Dict[str, Any] = {
@@ -2639,7 +2683,7 @@ class DocParsing:
                 continue
 
             filename_base = process_key.split('_header_')[-1] if '_header_' in process_key else process_key.replace('_single_process', '')
-            safe_filename_base = re.sub(r'[\\/*?:"<>| ]', '_', filename_base)
+            safe_filename_base = re.sub(r'[\\/*?:"<>|]', '_', filename_base)
             max_len = 100 # Max filename length
             safe_filename_base = safe_filename_base[:max_len] if len(safe_filename_base) > max_len else safe_filename_base
 
@@ -2855,7 +2899,7 @@ class MultiProcessHandler:
         Prepare all records for upload.
         
         Coordinates the generation of process IDs and the preparation
-        of both core and detailed records for database upload.
+        of both core and detailed records for upload.
 
         Parameters:
             provided_dict: The process' dictionary
@@ -3010,4 +3054,4 @@ class MultiProcessHandler:
                 print(f"Successfully uploaded records for {record['core'].get('process_name', 'Unknown')}")
         except Exception as e:
             print(f"Error uploading records: {e}")
-        
+
