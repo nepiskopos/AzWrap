@@ -2144,41 +2144,35 @@ class SearchIndex:
         return results_return
 
     def perform_hybrid_search(self,
-                             query_text: str,
-                             query_vector: List[float],
-                             display_fields: List[str] = None,
-                             search_fields: List[str] = None,
-                             include_total_count: bool = True,
-                             filter_by: str = None,
-                             filter_vals: list = None,
-                             vector_fields: Optional[str] = None,
-                             vectorized_query_kind: str = "vector",
-                             exhaustive: bool = False,
-                             k_nearest_neighbors_vector_search: int = 50,
-                             use_semantic_search: bool = False,
-                             top: int = 5,
-                             semantic_config_name: str = "default-semantic-config",
-                             query_answer: str = "extractive",
-                             search_options: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+                              query_text: str,
+                              query_vector: List[float],
+                              vector_fields: Optional[str] = None,
+                              search_options: Optional[Dict[str, Any]] = None,
+                              use_semantic_search: bool = False,
+                              top: int = 10,
+                              semantic_config_name: str = "default-semantic-config",
+                              display_fields: List[str] = None,
+                              include_total_count: bool = True,
+                              vectorized_query_kind: str = "vector",
+                              exhaustive: bool = False,
+                              k_nearest_neighbors_vector_search: int = 50,
+                              query_answer: str = "extractive") -> List[Dict[str, Any]]:
         """
         Perform a hybrid search combining traditional keyword search with vector search.
         Args:
             query_text: The search query text
             query_vector: The vector representation of the query
-            display_fields: List of fields to display in the results
-            search_fields: List of fields to perform search in
-            include_total_count: Whether to include the total count of results
-            filter_by: The field to filter by
-            filter_vals: The field values to create fitering expressions with
             vector_fields: List of fields to perform vector search on
-            vectorized_query_kind: The kind of vector query being performed. Known values are: "vector" and "text".
-            exhaustive: Whether to trigger an exhaustive k-nearest neighbor search across all vectors within the vector index
-            k_nearest_neighbors_vector_search: Number of nearest neighbors to return as top hits
+            search_options: Additional search options
             use_semantic_search: Whether to use a semantic search configuration
             top: The number of search results to retrieve
             semantic_config_name: The name of the semantic configuration to use
+            display_fields: List of fields to display in the results
+            include_total_count: Whether to include the total count of results in the response
+            vectorized_query_kind: The kind of vector query being performed. Known values are: "vector" and "text".
+            exhaustive: Whether to trigger an exhaustive k-nearest neighbor search across all vectors within the vector index
+            k_nearest_neighbors_vector_search: Number of nearest neighbors to return as top hits
             query_answer: This parameter is only valid if the query type is 'semantic'. If set, the query returns answers extracted from key passages in the highest ranked documents
-            search_options: Additional search options
         Returns:
             A list of search results
         """
@@ -2201,9 +2195,6 @@ class SearchIndex:
             "select": display_fields,
             "include_total_count": include_total_count,
         }
-
-        if search_fields:
-            default_options["search_fields"] = search_fields
         
         # Add semantic search if requested
         if use_semantic_search:
@@ -2212,15 +2203,7 @@ class SearchIndex:
                 "semantic_configuration_name": semantic_config_name,
                 "query_caption": "extractive", 
                 "query_answer": query_answer,
-            })
-        
-        # Add filter if provided
-        if filter_by in ["", " ", None, "None"]:
-            filter_expr = None
-        else:
-            filter_expr = [f"{filter_by} eq '{str(f)}'" for f in filter_vals]
-            filter_expr = " or ".join(filter_expr)
-            default_options.update({"filter": filter_expr})
+            })        
         
         # Update with any user-provided options
         if search_options:
