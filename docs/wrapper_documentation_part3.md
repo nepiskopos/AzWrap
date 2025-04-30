@@ -170,19 +170,9 @@ for result in results:
 # Perform a hybrid search (keyword + vector)
 results = index.perform_hybrid_search(
     query_text="example query",
-    query_vector=[0.1, 0.2, 0.3, ...],  # Vector embedding
-    display_fields=["content_field"],
-    search_fields=["content_field"],
-    include_total_count=True,
-    filter_by="additional_content_field",
-    filter_vals=["value_to_check"],
+    query_vector=[0.1, 0.2, 0.3, ...],
     vector_fields=["vector_field"],
+    search_options=None,
     use_semantic_search=True,
-    top=10,
-    vectorized_query_kind=vectorized_query_kind,
-    exhaustive=True,
-    k_nearest_neighbors_vector_search=5,
-    semantic_config_name="semantic_config_name",
-    query_answer="exhaustive",
-    search_options=None
+    top=10
 )
