@@ -177,10 +177,12 @@ query_embedding = openai_client.generate_embeddings("What is Azure AI Search?")
 
 # Perform a vector search
 results = index.perform_hybrid_search(
-    search_text="What is Azure AI Search?",
-    vector_query=query_embedding,
-    vector_field="embedding",
-    top=5
+    query_text="What is Azure AI Search?",
+    query_vector=query_embedding,
+    vector_fields=["vector_field"],
+    search_options=None,
+    use_semantic_search=True,
+    top=10
 )
 ```
 
