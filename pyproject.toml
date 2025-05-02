@@ -31,8 +31,9 @@ dependencies = [
     "python-dotenv>=1.0.1",
     "PyPDF2>=3.0.0",
     "pandas>=2.0.0",
-    "openpyxl>=3.1.0",  # Required for pandas Excel support
-    "click>=8.1.8",     # Required for CLI
+    "openpyxl>=3.1.0", # Required for pandas Excel support
+    "click>=8.1.8", # Required for CLI
+    "python-docx>=1.1.2",
 ]
 
 [project.scripts]

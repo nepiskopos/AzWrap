@@ -24,6 +24,7 @@ Requires-Dist: PyPDF2>=3.0.0
 Requires-Dist: pandas>=2.0.0
 Requires-Dist: openpyxl>=3.1.0
 Requires-Dist: click>=8.1.8
+Requires-Dist: python-docx>=1.1.2
 
 # AzWrap
 
