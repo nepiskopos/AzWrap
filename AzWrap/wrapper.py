@@ -755,18 +755,6 @@ class AIService:
             azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
         )
         return OpenAIClient(self, openai_client) 
-    
-    def get_ChatOpenAIModel(self, api_version:str, azure_deployment:str, temperature:int) -> "AzureChatOpenAI" :
-        keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
-        chat_openai_client = AzureChatOpenAI(
-            api_key=keys.key1,
-            api_version=api_version,
-            azure_endpoint= f"https://{self.azure_account.name}.openai.azure.com/",
-            azure_deployment=azure_deployment,
-            temperature=temperature
-        )
-        return chat_openai_client
-
 
     def get_models(self, azure_location: str = None) -> List[azcsm.Model]:
         if (azure_location is None): 
