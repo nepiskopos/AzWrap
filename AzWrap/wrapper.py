@@ -1755,15 +1755,19 @@ class SearchIndex:
         Returns:
             Number of successfully uploaded documents
         """
-        if not index_name:
-            index_name = self.index_name
-        search_client = self.get_search_client(index_name)
-        
-        # Upload documents to the target index
-        result = search_client.upload_documents(documents=documents)
-        
-        # Return the number of successfully uploaded documents
-        return result
+        try:
+            if not index_name:
+                index_name = self.index_name
+            search_client = self.get_search_client(index_name)
+            
+            # Upload documents to the target index
+            result = search_client.upload_documents(documents=documents)
+            
+            # Return the number of successfully uploaded documents
+            return result
+        except Exception as e:
+            print(f"Error uploading new index rows: {str(e)}")
+            raise e
     
 
     def copy_index_data(self, source_index_name: str, target_index_name: str, fields_to_copy: Optional[List[str]] = None, batch_size: int = 100) -> Tuple[int, int]:
