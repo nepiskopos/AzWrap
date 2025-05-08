@@ -1861,14 +1861,14 @@ class SearchIndex:
             print(f"Error copying index structure: {str(e)}")
             raise
 
-    def perform_search(self, fields_to_select:str="*", highlight_fields:str="chunk", filter_expression:Optional[str]=None, top:int=10,
+    def perform_search(self, fields_to_select:List[str]=None, highlight_fields:str="chunk", highlight_pre_tag:str="<b>", highlight_post_tag:str="</b>", include_total_count:bool=True, filter_expression:Optional[str]=None, top:int=10,
                        query_text:Optional[str]=None, search_options:Optional[Dict[str, Any]]=None) -> azsd.SearchItemPaged[Dict[str, Any]]:
         search_options = {
-            "include_total_count": True,
+            "include_total_count": include_total_count,
             "select": fields_to_select,
             "highlight_fields": highlight_fields,
-            "highlight_pre_tag": "<b>",
-            "highlight_post_tag": "</b>"
+            "highlight_pre_tag": highlight_pre_tag,
+            "highlight_post_tag": highlight_post_tag
         }
         if filter_expression:
             search_options["filter"] = filter_expression
