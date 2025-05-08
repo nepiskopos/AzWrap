@@ -11,3 +11,4 @@ AzWrap.egg-info/**
 working_docs/**
 test/graph_processor1.py
 test/logs
+**/.DS_Store
