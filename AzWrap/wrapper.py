@@ -2544,7 +2544,7 @@ class MultiProcessHandler:
         self.index_client_detail = index_client_detail
         self.openai_client = openai_client
     
-    def generate_process_id(self, process_name: str, short_description: str) -> int:
+    def generate_process_id(self, process_name: str, non_llm_summary: str, doc_name: str) -> int:
         """
         Generate a unique integer ID for the process based on its name and short description.
         
@@ -2553,16 +2553,17 @@ class MultiProcessHandler:
         
         Parameters:
             process_name: Name of the process
-            short_description: Brief description of the process
+            non_llm_summary: A non-LLM summary of the process
             
         Returns:
             String representation of the process ID derived from the hash
         """
         print(f"Generating Process ID")
         print(f"Process Name: {process_name}")
-        print(f"Short Description: {short_description}")
+        print(f"A non-llm summary: {non_llm_summary}")
+        print(f"Document Name: {doc_name}")
         
-        content_to_hash = f"{process_name}-{short_description}"
+        content_to_hash = f"{process_name}-{non_llm_summary}--{doc_name}"
         hashed_content = hashlib.sha256(content_to_hash.encode('utf-8')).hexdigest()
         
         # Convert the hex string to an integer and return only the first 10 digits of the integer
@@ -2601,7 +2602,7 @@ class MultiProcessHandler:
         print(f"Generated Step ID: {step_id}")
         return step_id
 
-    def prepare_core_df_record(self, process_id: int, provided_dict:Dict) -> Dict:
+    def prepare_core_df_record(self, provided_dict:Dict) -> Tuple[str, Dict]:
         """
         Prepare record for core_df index.
         
@@ -2633,11 +2634,15 @@ class MultiProcessHandler:
         ]
         non_llm_summary = "\n\n".join(summary_parts)
 
+        process_name = provided_dict.get('process_name', '')
+        doc_name = provided_dict.get('doc_name', '')
+        process_id = self.generate_process_id(process_name, non_llm_summary, doc_name)
+
         # Prepare core record
         core_record = {
             'process_id': process_id,
-            'process_name': provided_dict.get('process_name', ''),
-            'doc_name': provided_dict.get('doc_name', '').split('.')[0],
+            'process_name': process_name,
+            'doc_name': doc_name,
             'domain': provided_dict.get('domain', ''),
             'sub_domain': provided_dict.get('subdomain', ''),
             'functional_area': provided_dict.get('functional_area', ''),
@@ -2649,11 +2654,12 @@ class MultiProcessHandler:
             'reference_documents': ', '.join(provided_dict.get('reference_documents', [])),
             'related_products': ', '.join(provided_dict.get('related_products', [])),
             'additional_information': provided_dict.get('additional_information', ''),
+            'process_added_at': datetime.now(timezone.utc),
             'non_llm_summary': non_llm_summary.strip()
         }
 
         print("Core DataFrame Record prepared successfully")
-        return core_record
+        return process_id, core_record
 
     def prepare_detailed_df_records(self, process_id: int, provided_dict:Dict) -> List[Dict]:
         """
@@ -2674,8 +2680,6 @@ class MultiProcessHandler:
 
         # Generate Process ID
         process_name = provided_dict.get('process_name', '')
-        short_description = provided_dict.get('short_description', '')
-        process_id = self.generate_process_id(process_name, short_description)
 
         # Add Introduction (step 0)
         intro_content = (
@@ -2731,10 +2735,7 @@ class MultiProcessHandler:
         print("Preparing records for upload")
         
         # Prepare core record
-        process_name = provided_dict.get('process_name', '')
-        short_description = provided_dict.get('short_description', '')
-        process_id = self.generate_process_id(process_name, short_description)
-        core_record = self.prepare_core_df_record(process_id, provided_dict)
+        process_id, core_record = self.prepare_core_df_record(provided_dict)
 
         # Prepare detailed records
         detailed_records = self.prepare_detailed_df_records(process_id, provided_dict)
