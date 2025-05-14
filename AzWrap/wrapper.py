@@ -2768,7 +2768,7 @@ class MultiProcessHandler:
 
         return all_records
     
-    def upload_to_azure_index(self, all_records: List[Dict], core_index_name: str, detailed_index_name: str) -> None:
+    def upload_to_azure_index(self, all_records: List[Dict], core_index_name: Optional[str] = None, detail_index_name: Optional[str] = None) -> None:
         """
         Uploads the processed records to Azure Search indexes.
         
@@ -2789,8 +2789,8 @@ class MultiProcessHandler:
             Records are uploaded to Azure Search.
         """
         
-        index_client_core = self.index_client_core
-        index_client_detail = self.index_client_detail
+        index_client_core = core_index_name or self.index_client_core
+        index_client_detail = detail_index_name or self.index_client_detail
 
         openai_client = self.openai_client
 
