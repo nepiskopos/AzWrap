@@ -443,7 +443,7 @@ class Container:
         blobs = self.container_client.list_blobs()
         return [blob for blob in blobs]
         
-    def get_blob_content(self, blob_name: str) -> bytes:
+    def get_blob_content(self, blob_name: str) -> Any:
         """
         Get the content of a specific blob using its name
         
@@ -456,6 +456,7 @@ class Container:
         Raises:
             ValueError: If the blob cannot be found or accessed
         """
+        from io import BytesIO
         try:
             # Get the blob client for the specific blob
             blob_client = self.container_client.get_blob_client(blob_name)
@@ -463,10 +464,69 @@ class Container:
             # Download the blob content
             download_stream = blob_client.download_blob()
             content = download_stream.readall()
-            
-            return content
         except Exception as e:
             raise ValueError(f"Error retrieving content for {blob_name = }: {str(e)}")
+        
+        blob_type = self.get_blob_type(blob_name)
+        
+        if blob_type is None:
+            # Default to binary content if type cannot be determined
+            return content
+            
+        # Process based on MIME type
+        try:
+            if blob_type in [BlobType.TEXT_PLAIN, BlobType.TEXT_CSV, BlobType.TEXT_HTML, 
+                            BlobType.TEXT_CSS, BlobType.TEXT_JAVASCRIPT, BlobType.TEXT_XML, 
+                            BlobType.TEXT_MARKDOWN, BlobType.APP_JSON, BlobType.APP_XML]:
+                # Text-based formats
+                text = content.decode('utf-8')
+                return text
+                
+            elif blob_type == BlobType.MS_WORD:
+                # Word documents
+                try:
+                    import docx                    
+                    docx_file = BytesIO(content)
+                    
+                    # Load the document
+                    document = docx.Document(docx_file)
+                    
+                    return document
+                except ImportError:
+                    raise ImportError("The python-docx package is required to read DOCX files. Install it with 'pip install python-docx'")
+                except Exception as e:
+                    raise ValueError(f"Error extracting text from DOCX blob {blob_name}: {str(e)}")
+                
+            elif blob_type == BlobType.APP_PDF:
+                # PDF documents
+                try:
+                    import PyPDF2
+                    pdf_file = BytesIO(content)
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    
+                    text = ""
+                    for page_num in range(len(pdf_reader.pages)):
+                        text += pdf_reader.pages[page_num].extract_text()
+                    
+                    return text
+                except ImportError:
+                    raise ImportError("The PyPDF2 package is required to read PDF files. Install it with 'pip install PyPDF2'")
+                    
+            elif blob_type == BlobType.MS_EXCEL:
+                # Excel documents
+                try:
+                    import pandas as pd
+                    excel_file = BytesIO(content)
+                    return pd.read_excel(excel_file)
+                except ImportError:
+                    raise ImportError("The pandas package is required to read Excel files. Install it with 'pip install pandas openpyxl'")
+                    
+            else:
+                # Binary content for all other types
+                return content
+                
+        except Exception as e:
+            raise ValueError(f"Error processing blob {blob_name} as {blob_type.name}: {str(e)}")
     
     def get_blob_content_by_properties(self, blob_properties: BlobProperties) -> bytes:
         """
@@ -513,50 +573,7 @@ class Container:
         except Exception as e:
             print(f"Failed to list or process blobs in container: {e}") # Use print or setup class logger
         return blob_metadata
-        
-    def get_docx_content(self, blob_name: str) -> str:
-        """
-        Get the content of a Word DOCX file as text
-        
-        Args:
-            blob_name: Name of the blob to retrieve
-            
-        Returns:
-            str: The text content extracted from the DOCX file
-            
-        Raises:
-            ValueError: If the blob cannot be found, accessed, or is not a valid DOCX file
-            ImportError: If the required docx package is not installed
-        """
-        try:
-            # Import docx library for processing Word documents
-            try:
-                import docx
-            except ImportError:
-                raise ImportError("The python-docx package is required to read DOCX files. Install it with 'pip install python-docx'")
-            
-            # Get the blob content as bytes
-            content_bytes = self.get_blob_content(blob_name)
-            
-            # Create a file-like object from the bytes
-            from io import BytesIO
-            docx_file = BytesIO(content_bytes)
-            
-            # Load the document
-            document = docx.Document(docx_file)
-            
-            # Extract text from all paragraphs
-            paragraphs = [para.text for para in document.paragraphs]
-            
-            # Join paragraphs with newlines
-            text_content = '\n'.join(paragraphs)
-            
-            return text_content
-        except ImportError as e:
-            raise e
-        except Exception as e:
-            raise ValueError(f"Error extracting text from DOCX blob {blob_name}: {str(e)}")
-        
+                
     def delete_blob(self, blob_name: str) -> bool:
         """
         Delete a blob from the container by its name
@@ -673,73 +690,6 @@ class Container:
         extension = blob_name.split('.')[-1]
         return BlobType.from_extension(extension)
         
-    def process_blob_by_type(self, blob_name: str) -> Any:
-        """
-        Process a blob based on its detected type
-        
-        Args:
-            blob_name: Name of the blob to process
-            
-        Returns:
-            The processed content in the appropriate format for the detected type
-            
-        Raises:
-            ValueError: If the blob cannot be processed
-            ImportError: If a required package is not installed
-        """
-        blob_type = self.get_blob_type(blob_name)
-        
-        if blob_type is None:
-            # Default to binary content if type cannot be determined
-            return self.get_blob_content(blob_name)
-            
-        # Process based on MIME type
-        try:
-            if blob_type in [BlobType.TEXT_PLAIN, BlobType.TEXT_CSV, BlobType.TEXT_HTML, 
-                            BlobType.TEXT_CSS, BlobType.TEXT_JAVASCRIPT, BlobType.TEXT_XML, 
-                            BlobType.TEXT_MARKDOWN, BlobType.APP_JSON, BlobType.APP_XML]:
-                # Text-based formats
-                return self.get_text_content(blob_name)
-                
-            elif blob_type == BlobType.MS_WORD:
-                # Word documents
-                return self.get_docx_content(blob_name)
-                
-            elif blob_type == BlobType.APP_PDF:
-                # PDF documents
-                try:
-                    import PyPDF2
-                    content_bytes = self.get_blob_content(blob_name)
-                    from io import BytesIO
-                    pdf_file = BytesIO(content_bytes)
-                    pdf_reader = PyPDF2.PdfReader(pdf_file)
-                    
-                    text = ""
-                    for page_num in range(len(pdf_reader.pages)):
-                        text += pdf_reader.pages[page_num].extract_text()
-                    
-                    return text
-                except ImportError:
-                    raise ImportError("The PyPDF2 package is required to read PDF files. Install it with 'pip install PyPDF2'")
-                    
-            elif blob_type == BlobType.MS_EXCEL:
-                # Excel documents
-                try:
-                    import pandas as pd
-                    content_bytes = self.get_blob_content(blob_name)
-                    from io import BytesIO
-                    excel_file = BytesIO(content_bytes)
-                    return pd.read_excel(excel_file)
-                except ImportError:
-                    raise ImportError("The pandas package is required to read Excel files. Install it with 'pip install pandas openpyxl'")
-                    
-            else:
-                # Binary content for all other types
-                return self.get_blob_content(blob_name)
-                
-        except Exception as e:
-            raise ValueError(f"Error processing blob {blob_name} as {blob_type.name}: {str(e)}")
-
     def get_folder_structure(self) -> Dict[str, List[str]]:
         """
         Get the folder structure and files in a container
@@ -788,6 +738,7 @@ from docx import Document
 from io import BytesIO
 
 from openai import AzureOpenAI
+from langchain_openai import AzureChatOpenAI
 class AIService:
     cognitive_client: CognitiveServicesManagementClient
     azure_account: azcsm.Account
@@ -1230,10 +1181,10 @@ class SearchService:
             name=semantic_config_name,
             prioritized_fields=azsdim.SemanticPrioritizedFields(
                 title_field=azsdim.SemanticField(field_name=title_field),
-                prioritized_content_fields=[
+                content_fields=[
                     azsdim.SemanticField(field_name=field) for field in content_fields
                 ],
-                prioritized_keywords_fields=[
+                keywords_fields=[
                     azsdim.SemanticField(field_name=field) for field in keyword_fields
                 ]
             )
@@ -1713,80 +1664,6 @@ class SearchIndex:
             )
         return search_client  
 
-    def get_index_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Retrieves metadata for all documents in the search index.
-
-        Returns:
-            Dict mapping blob name (assuming a 'blob_name' field exists) to its index metadata.
-        """
-        print(f"Retrieving metadata from index '{self.index_name}'...")
-        index_metadata = {}
-        try:
-            search_client = self.get_search_client()
-            
-            # Get fields from index definition
-            index_client = self.search_service.get_index_client()
-            index = index_client.get_index(self.index_name)
-            
-            # Determine which fields to select based on the index definition
-            field_names = [field.name for field in index.fields]
-            
-            # Check for required fields
-            id_field = next((field.name for field in index.fields if field.key), "id")
-            blob_name_field = "blob_name" if "blob_name" in field_names else None
-            blob_modified_field = "blob_last_modified" if "blob_last_modified" in field_names else None
-            
-            # Prepare select fields string for the query
-            select_fields = id_field
-            if blob_name_field:
-                select_fields += f",{blob_name_field}"
-            if blob_modified_field:
-                select_fields += f",{blob_modified_field}"
-                
-            print(f"Using fields for metadata query: {select_fields}")
-            
-            results = list(search_client.search(search_text="*", select=select_fields, include_total_count=True))
-            total_count = search_client.get_document_count() # More reliable way to get count
-            print(f"Found {total_count} documents in index '{self.index_name}'.")
-
-            for doc in results:
-                # Use the detected blob name field or fall back to id if not available
-                blob_name = doc.get(blob_name_field) if blob_name_field else doc.get(id_field)
-                if blob_name:
-                    # Create metadata entry
-                    metadata = {
-                        'id': doc.get(id_field),  # The document key in the index
-                    }
-                    
-                    # Add blob_name if available
-                    if blob_name_field:
-                        metadata['blob_name'] = blob_name
-                    
-                    # Add modified date if available and convert to timezone-aware datetime
-                    if blob_modified_field:
-                        last_modified_str = doc.get(blob_modified_field)
-                        if last_modified_str:
-                            try:
-                                # Attempt parsing with timezone info
-                                last_modified_dt = datetime.fromisoformat(last_modified_str.replace('Z', '+00:00'))
-                                if last_modified_dt.tzinfo is None:
-                                    last_modified_dt = last_modified_dt.replace(tzinfo=timezone.utc) # Assume UTC if no tzinfo
-                                metadata['last_modified'] = last_modified_dt
-                            except ValueError:
-                                print(f"Could not parse timestamp '{last_modified_str}' for doc id {doc.get(id_field)}. Skipping timestamp comparison.")
-                    
-                    # Store all the metadata for this blob
-                    index_metadata[blob_name] = metadata
-                else:
-                    print(f"Document with ID '{doc.get(id_field)}' in index is missing blob identifier. Skipping.")
-                    
-            print(f"Successfully retrieved metadata for {len(index_metadata)} documents from index.")
-
-        except Exception as e:
-            print(f"Failed to retrieve documents from index '{self.index_name}': {e}")
-        return index_metadata
-
     def extend_index_schema(self, new_fields: List[azsdim.SearchField] ) -> Optional[bool]:
         """
         Extend an Azure AI Search index schema with new fields
@@ -1889,15 +1766,19 @@ class SearchIndex:
         Returns:
             Number of successfully uploaded documents
         """
-        if not index_name:
-            index_name = self.index_name
-        search_client = self.get_search_client(index_name)
-        
-        # Upload documents to the target index
-        result = search_client.upload_documents(documents=documents)
-        
-        # Return the number of successfully uploaded documents
-        return result
+        try:
+            if not index_name:
+                index_name = self.index_name
+            search_client = self.get_search_client(index_name)
+            
+            # Upload documents to the target index
+            result = search_client.upload_documents(documents=documents)
+            
+            # Return the number of successfully uploaded documents
+            return result
+        except Exception as e:
+            print(f"Error uploading new index rows: {str(e)}")
+            raise e
     
 
     def copy_index_data(self, source_index_name: str, target_index_name: str, fields_to_copy: Optional[List[str]] = None, batch_size: int = 100) -> Tuple[int, int]:
@@ -1995,14 +1876,14 @@ class SearchIndex:
             print(f"Error copying index structure: {str(e)}")
             raise
 
-    def perform_search(self, fields_to_select:str="*", highlight_fields:str="chunk", filter_expression:Optional[str]=None, top:int=10,
+    def perform_search(self, fields_to_select:List[str]=None, highlight_fields:str="chunk", highlight_pre_tag:str="<b>", highlight_post_tag:str="</b>", include_total_count:bool=True, filter_expression:Optional[str]=None, top:int=10,
                        query_text:Optional[str]=None, search_options:Optional[Dict[str, Any]]=None) -> azsd.SearchItemPaged[Dict[str, Any]]:
         search_options = {
-            "include_total_count": True,
+            "include_total_count": include_total_count,
             "select": fields_to_select,
             "highlight_fields": highlight_fields,
-            "highlight_pre_tag": "<b>",
-            "highlight_post_tag": "</b>"
+            "highlight_pre_tag": highlight_pre_tag,
+            "highlight_post_tag": highlight_post_tag
         }
         if filter_expression:
             search_options["filter"] = filter_expression
@@ -2695,7 +2576,7 @@ class MultiProcessHandler:
         self.index_client_detail = index_client_detail
         self.openai_client = openai_client
     
-    def generate_process_id(self, process_name: str, short_description: str) -> int:
+    def generate_process_id(self, process_name: str, non_llm_summary: str, doc_name: str) -> int:
         """
         Generate a unique integer ID for the process based on its name and short description.
         
@@ -2704,16 +2585,17 @@ class MultiProcessHandler:
         
         Parameters:
             process_name: Name of the process
-            short_description: Brief description of the process
+            non_llm_summary: A non-LLM summary of the process
             
         Returns:
             String representation of the process ID derived from the hash
         """
         print(f"Generating Process ID")
         print(f"Process Name: {process_name}")
-        print(f"Short Description: {short_description}")
+        print(f"A non-llm summary: {non_llm_summary}")
+        print(f"Document Name: {doc_name}")
         
-        content_to_hash = f"{process_name}-{short_description}"
+        content_to_hash = f"{process_name}-{non_llm_summary}--{doc_name}"
         hashed_content = hashlib.sha256(content_to_hash.encode('utf-8')).hexdigest()
         
         # Convert the hex string to an integer and return only the first 10 digits of the integer
@@ -2752,7 +2634,7 @@ class MultiProcessHandler:
         print(f"Generated Step ID: {step_id}")
         return step_id
 
-    def prepare_core_df_record(self, process_id: int, provided_dict:Dict) -> Dict:
+    def prepare_core_df_record(self, provided_dict:Dict) -> Tuple[str, Dict]:
         """
         Prepare record for core_df index.
         
@@ -2784,11 +2666,15 @@ class MultiProcessHandler:
         ]
         non_llm_summary = "\n\n".join(summary_parts)
 
+        process_name = provided_dict.get('process_name', '')
+        doc_name = provided_dict.get('doc_name', '')
+        process_id = self.generate_process_id(process_name, non_llm_summary, doc_name)
+
         # Prepare core record
         core_record = {
             'process_id': process_id,
-            'process_name': provided_dict.get('process_name', ''),
-            'doc_name': provided_dict.get('doc_name', '').split('.')[0],
+            'process_name': process_name,
+            'doc_name': doc_name,
             'domain': provided_dict.get('domain', ''),
             'sub_domain': provided_dict.get('subdomain', ''),
             'functional_area': provided_dict.get('functional_area', ''),
@@ -2800,11 +2686,12 @@ class MultiProcessHandler:
             'reference_documents': ', '.join(provided_dict.get('reference_documents', [])),
             'related_products': ', '.join(provided_dict.get('related_products', [])),
             'additional_information': provided_dict.get('additional_information', ''),
+            'process_added_at': datetime.now(timezone.utc),
             'non_llm_summary': non_llm_summary.strip()
         }
 
         print("Core DataFrame Record prepared successfully")
-        return core_record
+        return process_id, core_record
 
     def prepare_detailed_df_records(self, process_id: int, provided_dict:Dict) -> List[Dict]:
         """
@@ -2825,8 +2712,6 @@ class MultiProcessHandler:
 
         # Generate Process ID
         process_name = provided_dict.get('process_name', '')
-        short_description = provided_dict.get('short_description', '')
-        process_id = self.generate_process_id(process_name, short_description)
 
         # Add Introduction (step 0)
         intro_content = (
@@ -2882,10 +2767,7 @@ class MultiProcessHandler:
         print("Preparing records for upload")
         
         # Prepare core record
-        process_name = provided_dict.get('process_name', '')
-        short_description = provided_dict.get('short_description', '')
-        process_id = self.generate_process_id(process_name, short_description)
-        core_record = self.prepare_core_df_record(process_id, provided_dict)
+        process_id, core_record = self.prepare_core_df_record(provided_dict)
 
         # Prepare detailed records
         detailed_records = self.prepare_detailed_df_records(process_id, provided_dict)
@@ -2918,7 +2800,7 @@ class MultiProcessHandler:
 
         return all_records
     
-    def upload_to_azure_index(self, all_records: List[Dict], core_index_name: str, detailed_index_name: str) -> None:
+    def upload_to_azure_index(self, all_records: List[Dict], core_index_name: Optional[str] = None, detail_index_name: Optional[str] = None) -> None:
         """
         Uploads the processed records to Azure Search indexes.
         
@@ -2939,8 +2821,8 @@ class MultiProcessHandler:
             Records are uploaded to Azure Search.
         """
         
-        index_client_core = self.index_client_core
-        index_client_detail = self.index_client_detail
+        index_client_core = core_index_name or self.index_client_core
+        index_client_detail = detail_index_name or self.index_client_detail
 
         openai_client = self.openai_client
 
