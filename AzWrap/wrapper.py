@@ -218,9 +218,20 @@ class ResourceGroup:
             if account.kind.lower() == "openai" and account.name.lower() == service_name.lower() :
                 return AIService(self, cognitive_client=cognitive_client, azure_Account=account)
         return None
-
         
 from azure.storage.blob import BlobServiceClient, ContainerProperties, ContainerClient, BlobProperties
+def validate_container_name(container_name: str) -> bool:
+        # Validate container name
+        if not container_name or not container_name.islower() or len(container_name) < 3 or len(container_name) > 63:
+            raise ValueError("Container name must be lowercase, between 3-63 characters")
+            
+        if not all(c.islower() or c.isdigit() or c == '-' for c in container_name):
+            raise ValueError("Container name can only contain lowercase letters, numbers, and hyphens")
+            
+        if container_name[0] == '-' or container_name[-1] == '-' or '--' in container_name:
+            raise ValueError("Container name cannot start or end with hyphens or contain consecutive hyphens")
+        return True
+
 class StorageAccount: 
     storage_account: azstm.StorageAccount
     resource_group: ResourceGroup
@@ -260,6 +271,95 @@ class StorageAccount:
             raise ValueError(f"Container with name {container_name} not found.")
         return Container(self, container)
     
+    from azure.storage.blob import PublicAccess
+    def get_access_level(public_access_level: Optional[str] = None ) -> PublicAccess | None:
+        # Convert public_access_level to appropriate enum value if provided
+        access_level = None
+        if public_access_level:
+            if public_access_level.lower() == 'container':
+                access_level = PublicAccess.Container
+            elif public_access_level.lower() == 'blob':
+                access_level = PublicAccess.Blob
+            else:
+                raise ValueError("public_access_level must be 'container', 'blob', or None")
+
+    def create_container(self, container_name: str, public_access_level: Optional[str] = None) -> "Container":
+        """
+            Create a new container in the storage account.
+            
+            Args:
+                container_name: Name of the container to create. Must be a valid DNS name,
+                                lowercase, between 3-63 characters, and can contain only letters,
+                                numbers, and hyphens.
+                public_access_level: Optional level of public access. Valid values are:
+                                    'container' (Full public read access for container and blob data),
+                                    'blob' (Public read access for blobs only),
+                                    None (No public access, default)
+            
+            Returns:
+                Container: The created container object
+                
+            Raises:
+                ValueError: If container name is invalid or if creation fails
+                azure.core.exceptions.ResourceExistsError: If container already exists
+        """
+        validate_container_name(container_name)
+
+        # Convert public_access_level to appropriate enum value if provided
+        access_level = StorageAccount.get_access_level(public_access_level)
+
+        
+        # Get the blob service client
+        blob_service_client = self.get_blob_service_client()
+        
+        # Create the container
+        container_client = blob_service_client.create_container(
+            name=container_name,
+            public_access=access_level
+        )
+        
+        print(f"Container '{container_name}' created successfully")
+        
+        # Return a Container object wrapping the new container
+        return Container(self, container_client)
+
+    def delete_container(self, container_name: str, force: bool = False) -> bool:
+        """
+        Delete a container from the storage account.
+        
+        Args:
+            container_name: Name of the container to delete
+            force: If True, deletes the container even if it contains blobs. 
+                If False, will raise an error if the container is not empty.
+        
+        Returns:
+            bool: True if the container was successfully deleted, False if it didn't exist
+            
+        Raises:
+            ValueError: If deletion fails for reasons other than the container not existing
+                    or if the container is not empty and force=False
+        """
+        # Get the blob service client
+        blob_service_client = self.get_blob_service_client()
+        
+        # Check if the container exists
+        container_client = blob_service_client.get_container_client(container_name)
+        
+        # Check if the container is empty when force is False
+        if not force:
+            # List blobs with maxresults=1 to check if any blobs exist
+            blob_iterator = container_client.list_blobs()
+            try:
+                next(iter(blob_iterator))
+                raise ValueError( f"Container '{container_name}' is not empty. Set force=True to delete anyway." )
+            except StopIteration:
+                # No blobs found, safe to delete
+                pass    
+        
+        # Delete the container
+        container_client.delete_container()
+        print(f"Container '{container_name}' deleted successfully")
+        return True
 
 class BlobType(Enum):
     """
@@ -553,27 +653,64 @@ class Container:
         """
         print(f"Retrieving metadata for blobs in container '{self.container_client.container_name}'...")
         blob_metadata = {}
-        try:
-            blobs: List[BlobProperties] = self.get_blobs() # Use self.get_blobs()
-            print(f"Found {len(blobs)} blobs in container.")
-            for blob_prop in blobs:
-                try:
-                    # Ensure last_modified is timezone-aware (UTC)
-                    last_modified_utc = blob_prop.last_modified.astimezone(timezone.utc)
+        blobs: List[BlobProperties] = self.get_blobs() # Use self.get_blobs()
+        print(f"Found {len(blobs)} blobs in container.")
+        for blob_prop in blobs:
+            # Ensure last_modified is timezone-aware (UTC)
+            last_modified_utc = blob_prop.last_modified.astimezone(timezone.utc)
 
-                    blob_metadata[blob_prop.name] = {
-                        'name': blob_prop.name,
-                        'last_modified': last_modified_utc,
-                        'size': blob_prop.size,
-                        'etag': blob_prop.etag
-                    }
-                except Exception as e:
-                    print(f"Error processing blob '{blob_prop.name}': {e}") # Use print or setup class logger
-            print(f"Successfully retrieved metadata for {len(blob_metadata)} blobs.")
-        except Exception as e:
-            print(f"Failed to list or process blobs in container: {e}") # Use print or setup class logger
+            blob_metadata[blob_prop.name] = {
+                'name': blob_prop.name,
+                'last_modified': last_modified_utc,
+                'size': blob_prop.size,
+                'etag': blob_prop.etag
+            }
         return blob_metadata
-                
+        
+    def get_docx_content(self, blob_name: str) -> str:
+        """
+        Get the content of a Word DOCX file as text
+        
+        Args:
+            blob_name: Name of the blob to retrieve
+            
+        Returns:
+            str: The text content extracted from the DOCX file
+            
+        Raises:
+            ValueError: If the blob cannot be found, accessed, or is not a valid DOCX file
+            ImportError: If the required docx package is not installed
+        """
+        try:
+            # Import docx library for processing Word documents
+            try:
+                import docx
+            except ImportError:
+                raise ImportError("The python-docx package is required to read DOCX files. Install it with 'pip install python-docx'")
+            
+            # Get the blob content as bytes
+            content_bytes = self.get_blob_content(blob_name)
+            
+            # Create a file-like object from the bytes
+            from io import BytesIO
+            docx_file = BytesIO(content_bytes)
+            
+            # Load the document
+            document = docx.Document(docx_file)
+            
+            # Extract text from all paragraphs
+            paragraphs = [para.text for para in document.paragraphs]
+            
+            # Join paragraphs with newlines
+            text_content = '\n'.join(paragraphs)
+            
+            return text_content
+        except ImportError as e:
+            raise e
+        except Exception as e:
+            print (f"Error extracting text from DOCX blob {blob_name}: {str(e)}")
+            raise e
+        
     def delete_blob(self, blob_name: str) -> bool:
         """
         Delete a blob from the container by its name
@@ -596,7 +733,8 @@ class Container:
             
             return True
         except Exception as e:
-            raise ValueError(f"Error deleting blob {blob_name}: {str(e)}")
+            print (f"Error deleting blob {blob_name}: {str(e)}")
+            raise e
             
     def find_blobs_by_filename(self, filename: str, case_sensitive: bool = False) -> List[BlobProperties]:
         """
@@ -638,7 +776,8 @@ class Container:
             
             return matching_blobs
         except Exception as e:
-            raise ValueError(f"Error searching for blobs with filename '{filename}': {str(e)}")
+            print(f"Error searching for blobs with filename '{filename}': {str(e)}")
+            raise e
                        
     def get_blob_type_from_properties(self, properties: BlobProperties) -> Optional["BlobType"]:
         """
@@ -690,6 +829,74 @@ class Container:
         extension = blob_name.split('.')[-1]
         return BlobType.from_extension(extension)
         
+    def process_blob_by_type(self, blob_name: str) -> Any:
+        """
+        Process a blob based on its detected type
+        
+        Args:
+            blob_name: Name of the blob to process
+            
+        Returns:
+            The processed content in the appropriate format for the detected type
+            
+        Raises:
+            ValueError: If the blob cannot be processed
+            ImportError: If a required package is not installed
+        """
+        blob_type = self.get_blob_type(blob_name)
+        
+        if blob_type is None:
+            # Default to binary content if type cannot be determined
+            return self.get_blob_content(blob_name)
+            
+        # Process based on MIME type
+        try:
+            if blob_type in [BlobType.TEXT_PLAIN, BlobType.TEXT_CSV, BlobType.TEXT_HTML, 
+                            BlobType.TEXT_CSS, BlobType.TEXT_JAVASCRIPT, BlobType.TEXT_XML, 
+                            BlobType.TEXT_MARKDOWN, BlobType.APP_JSON, BlobType.APP_XML]:
+                # Text-based formats
+                return self.get_text_content(blob_name)
+                
+            elif blob_type == BlobType.MS_WORD:
+                # Word documents
+                return self.get_docx_content(blob_name)
+                
+            elif blob_type == BlobType.APP_PDF:
+                # PDF documents
+                try:
+                    import PyPDF2
+                    content_bytes = self.get_blob_content(blob_name)
+                    from io import BytesIO
+                    pdf_file = BytesIO(content_bytes)
+                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    
+                    text = ""
+                    for page_num in range(len(pdf_reader.pages)):
+                        text += pdf_reader.pages[page_num].extract_text()
+                    
+                    return text
+                except ImportError:
+                    raise ImportError("The PyPDF2 package is required to read PDF files. Install it with 'pip install PyPDF2'")
+                    
+            elif blob_type == BlobType.MS_EXCEL:
+                # Excel documents
+                try:
+                    import pandas as pd
+                    content_bytes = self.get_blob_content(blob_name)
+                    from io import BytesIO
+                    excel_file = BytesIO(content_bytes)
+                    return pd.read_excel(excel_file)
+                except ImportError:
+                    raise ImportError("The pandas package is required to read Excel files. Install it with 'pip install pandas openpyxl'")
+                    
+            else:
+                # Binary content for all other types
+                return self.get_blob_content(blob_name)
+                
+        except Exception as e:
+            print(f"Error processing blob {blob_name} as {blob_type.name}: {str(e)}")
+            raise e
+
     def get_folder_structure(self) -> Dict[str, List[str]]:
         """
         Get the folder structure and files in a container
@@ -728,6 +935,366 @@ class Container:
                 folder_structure['root'].append(blob_name)
         
         return folder_structure
+    
+    def resolve_content_type( file_path:str, content_type: Optional[Union[str, "BlobType"]] = None) -> Optional[str]:
+        resolved_content_type = None
+        if content_type:
+            if isinstance(content_type, BlobType):
+                resolved_content_type = content_type.value
+            else:
+                resolved_content_type = content_type
+        else: 
+            # Try to determine from file extension
+            _, extension = os.path.splitext(file_path)
+            if extension:
+                blob_type = BlobType.from_extension(extension)
+                if blob_type:
+                    resolved_content_type = blob_type.value
+        return resolved_content_type
+    
+    from io import BufferedReader
+    def upload_stream(self, file_data:BufferedReader, destination_blob_name: Optional[str] = None, 
+                    resolved_content_type: str = None, 
+                    metadata: Optional[Dict[str, str]] = None) -> BlobProperties:
+
+        # Get the blob client for the destination
+        blob_client = self.container_client.get_blob_client(destination_blob_name)
+        
+        # Set up content settings
+        content_settings = None
+        if resolved_content_type:
+            from azure.storage.blob import ContentSettings
+            content_settings = ContentSettings(content_type=resolved_content_type)
+        
+        # Read the file and upload
+        blob_client.upload_blob(
+            file_data, 
+            overwrite=True,
+            content_settings=content_settings,
+            metadata=metadata
+        )
+        
+        # Return properties of the uploaded blob
+        return blob_client.get_blob_properties()
+
+    def upload_file(self, local_file_path: str, destination_blob_name: Optional[str] = None, 
+                    content_type: Optional[Union[str, "BlobType"]] = None, 
+                    metadata: Optional[Dict[str, str]] = None) -> BlobProperties:
+        """
+        Upload a file from a local path to the container.
+        
+        Args:
+            local_file_path: Path to the local file to upload
+            destination_blob_name: Name to use for the blob in the container (defaults to filename)
+            content_type: Content type to set for the blob (can be string or BlobType enum)
+            metadata: Optional dictionary of custom metadata to set on the blob
+        
+        Returns:
+            BlobProperties: Properties of the uploaded blob
+            
+        Raises:
+            ValueError: If the file does not exist or cannot be uploaded
+            
+        Examples:
+            # Upload a file with default name (same as local filename)
+            container.upload_file("C:/documents/report.pdf")
+            
+            # Upload a file with a custom name and content type
+            container.upload_file("C:/images/photo.jpg", "vacation/beach.jpg", BlobType.IMAGE_JPEG)
+            
+            # Upload with metadata
+            container.upload_file("C:/data/records.csv", "2023/monthly_data.csv", 
+                                BlobType.TEXT_CSV, {"source": "finance", "period": "Q2"})
+        """
+        # Verify the file exists
+        if not os.path.isfile(local_file_path):
+            raise ValueError(f"File does not exist: {local_file_path}")
+        
+        # If destination blob name not provided, use the filename
+        if destination_blob_name is None:
+            destination_blob_name = os.path.basename(local_file_path)
+        
+        # Determine content type if not explicitly provided
+        resolved_content_type = Container.resolve_content_type(local_file_path, content_type)
+        
+        # Set up content settings
+        content_settings = None
+        if resolved_content_type:
+            from azure.storage.blob import ContentSettings
+            content_settings = ContentSettings(content_type=resolved_content_type)
+        
+        # Read the file and upload
+        with open(local_file_path, "rb") as file_data:
+            blob_properties = self.upload_stream( file_data=file_data, destination_blob_name=destination_blob_name,
+                               resolved_content_type=resolved_content_type,
+                               metadata=metadata)
+
+        # Return properties of the uploaded blob
+        return blob_properties
+
+class FolderProcessingResults:
+    file_mappings: Dict[str, str]
+    uuid_to_original: Dict[str, str]
+    def __init__(self, file_mappings: Dict[str, str], uuid_to_original: Dict[str, str]):
+        self.file_mappings = file_mappings
+        self.uuid_to_original = uuid_to_original
+
+    import json
+    def store_mapping(self, mapping_file: str) -> None:
+        with open(mapping_file, 'w') as f:
+            json.dump(self.file_mappings, f, indent=2)
+    
+    def store_uuid_mapping(self, uuid_mapping_file: str) -> None:
+        with open(uuid_mapping_file, 'w') as f:
+            json.dump(self.uuid_to_original, f, indent=2)
+    
+    def load_file_mapping(self, mapping_file: str) -> None:
+        with open(mapping_file, 'r') as f:
+            mappings = json.load(f)
+        self.file_mappings = mappings
+    
+    def load_uuid_mapping(self, uuid_mapping_file: str) -> None:
+        with open(uuid_mapping_file, 'r') as f:
+            uuid_mappings = json.load(f)
+        self.uuid_to_original = uuid_mappings
+
+    def load_mappings(self, mapping_file: str, uuid_mapping_file: str) -> None:
+        self.load_file_mapping(mapping_file)
+        self.load_uuid_mapping(uuid_mapping_file)
+
+    def get_uuid_filename(self, rel_filename: str) -> Optional[str]:
+        return self.file_mappings.get(rel_filename, None)
+    
+    def get_original_filename(self, uuid_filename: str) -> Optional[str]:
+        return self.uuid_to_original.get(uuid_filename, None)
+
+class FolderProcessor:
+    localfolder: str
+
+    def __init__(self, folder: str):
+        # Validate the local directory
+        if not os.path.isdir(folder):
+            raise ValueError(f"The directory '{folder}' does not exist or is not a directory")
+        self.localfolder = folder    
+
+    def get_uuid_filename( filename: str) -> str:
+        import uuid
+        # Get file extension
+        file_name, file_ext = os.path.splitext(filename)
+        if file_name == str(uuid.UUID(file_name)):
+            # If the filename is already a UUID, keep it as is
+            uuid_filename = file_name + file_ext
+        else:
+            # Generate a UUID and keep the file extension
+            uuid_filename = f"{uuid.uuid4()}{file_ext}"
+        return uuid_filename
+
+    def get_dest_path(container_folder:str, rel_path: str, uuid_filename:str) -> str :
+        # Keep folder structure: container_folder + relative_path (with UUID filename)
+        rel_dir = os.path.dirname(rel_path)
+        if rel_dir:
+            # Replace backslashes with forward slashes for blob paths
+            rel_dir = rel_dir.replace('\\', '/')
+            dest_path = f"{container_folder}{rel_dir}/{uuid_filename}"
+        else:
+            dest_path = f"{container_folder}{uuid_filename}"    
+        return dest_path
+
+    #from typing import Dict, List, Optional, Tuple
+
+    def upload_directory(self, 
+                        container: Container,
+                        container_folder: str = "", 
+                        maintain_structure: bool = False, 
+                        extensions_filter: Optional[List[str]] = None,
+                        use_uuid: bool = True,
+                        overwrite: bool = False,
+                        record_mappings: bool = True) -> Dict[str, str]:
+        """
+        Upload all files from a local directory to the container, either preserving the folder 
+        structure or flattening all files into a single container folder.
+        
+        Args:
+            local_directory: Path to the local directory to upload
+            container_folder: Base folder in the container to upload to (will be created if doesn't exist)
+            maintain_structure: If True, preserves folder structure; if False, flattens all files
+            extensions_filter: Optional list of file extensions to include (e.g., ['.pdf', '.docx'])
+            use_uuid: If True, replaces filenames with UUIDs; if False, keeps original filenames
+            overwrite: Whether to overwrite if files already exist
+            record_mappings: Whether to create a mapping file relating original names to UUIDs
+            
+        Returns:
+            Dict mapping original file paths to their destination blob paths
+        
+        Raises:
+            ValueError: If the local directory doesn't exist or if upload fails
+        """
+        
+        # Normalize the container folder (ensure it ends with a slash if not empty)
+        if container_folder and not container_folder.endswith('/'):
+            container_folder = container_folder + '/'
+        
+        # Initialize mapping of original files to blob paths
+        file_mappings = {}
+        
+        # Keep a mapping of UUIDs to original filenames if using UUIDs
+        uuid_to_original = {}
+
+                
+        # Walk through the directory structure
+        for root, _, files in os.walk(self.local_directory):
+            # Filter files by extension if specified
+            if extensions_filter:
+                files = [f for f in files if any(f.lower().endswith(ext.lower()) for ext in extensions_filter)]
+            
+            for filename in files:
+                # Get the full local file path
+                local_file_path = os.path.join(root, filename)
+                # Determine relative path from the base directory
+                rel_path = os.path.relpath(local_file_path, self.local_directory)
+                # Generate a UUID for the file if requested
+                if use_uuid:
+                    # Store mapping
+                    uuid_to_original[FolderProcessor.get_uuid_filename(filename)] = rel_path
+                else:
+                    uuid_filename = filename
+                
+                # Determine the destination blob path
+                if maintain_structure:
+                    # Keep folder structure: container_folder + relative_path (with UUID filename)
+                    rel_dir = os.path.dirname(rel_path)
+                    dest_path = FolderProcessor.get_dest_path(container_folder, rel_path, uuid_filename)
+                else:
+                    # Flatten structure: all files go directly to container_folder
+                    dest_path = f"{container_folder}{uuid_filename}"
+                
+                import mimetypes
+                # Detect content type
+                content_type, _ = mimetypes.guess_type(local_file_path)
+                
+                # Create a blob client for the destination path
+                blob_client = self.container_client.get_blob_client(dest_path)
+                
+                # Set content settings if content type was detected
+                content_settings = None
+                if content_type:
+                    from azure.storage.blob import ContentSettings
+                    content_settings = ContentSettings(content_type=content_type)
+                
+                # Upload the file
+                with open(local_file_path, "rb") as data:
+                    blob_client.upload_blob(data, overwrite=overwrite, content_settings=content_settings)
+                
+                # Store the mapping
+                file_mappings[rel_path] = dest_path
+                
+                print(f"Uploaded: {rel_path} -> {dest_path}")
+        
+        # If using UUIDs, create a mapping file in the container
+        if use_uuid and record_mappings:
+            # Create a JSON mapping file
+            mapping_blob_name = f"{container_folder}file_mappings.json"
+            mapping_blob = self.container_client.get_blob_client(mapping_blob_name)
+            
+            # Convert mapping to JSON
+            mapping_json = json.dumps(uuid_to_original, indent=2)
+            
+            # Upload the mapping file
+            mapping_blob.upload_blob(mapping_json, overwrite=True, content_settings=ContentSettings(content_type="application/json"))
+            print(f"Created mapping file: {mapping_blob_name}")
+        
+        return FolderProcessingResults( file_mappings=file_mappings, uuid_to_original=uuid_to_original)
+
+    # def download_files_with_mapping(self, 
+    #                             container_folder: str = "",
+    #                             mapping_file: Optional[str] = None,
+    #                             use_original_names: bool = True) -> List[str]:
+    #     """
+    #     Download files from the container, optionally using a mapping file to restore original names.
+        
+    #     Args:
+    #         container_folder: Folder in the container to download from
+    #         mapping_file: Optional path to the mapping file (defaults to 'file_mappings.json' in container_folder)
+    #         use_original_names: If True, restores original filenames using the mapping file
+            
+    #     Returns:
+    #         List of local file paths that were downloaded
+            
+    #     Raises:
+    #         ValueError: If download fails or mapping file not found when use_original_names=True
+    #     """
+    #     # Ensure the local directory exists
+    #     os.makedirs(self.local_directory, exist_ok=True)
+        
+    #     # Normalize the container folder
+    #     if container_folder and not container_folder.endswith('/'):
+    #         container_folder = container_folder + '/'
+        
+    #     # Initialize list of downloaded files
+    #     downloaded_files = []
+        
+    #     # If we need to use original names, load the mapping file
+    #     uuid_to_original_map = {}
+    #     if use_original_names:
+    #         # Determine mapping file path if not specified
+    #         if not mapping_file:
+    #             mapping_file = f"{container_folder}file_mappings.json"
+            
+    #         # Get the mapping file
+    #         mapping_blob = self.container_client.get_blob_client(mapping_file)
+    #         try:
+    #             mapping_content = mapping_blob.download_blob().readall()
+    #             uuid_to_original_map = json.loads(mapping_content)
+    #         except Exception as e:
+    #             raise ValueError(f"Failed to load mapping file: {str(e)}")
+        
+    #     # List all blobs in the specified folder
+    #     blobs = self.container_client.list_blobs(name_starts_with=container_folder)
+        
+    #     for blob in blobs:
+    #         # Skip the mapping file itself
+    #         if blob.name == mapping_file:
+    #             continue
+                
+    #         # Get the blob name (without container folder prefix)
+    #         if container_folder:
+    #             relative_blob_name = blob.name[len(container_folder):]
+    #         else:
+    #             relative_blob_name = blob.name
+                
+    #         # Skip if empty (this would be the container folder itself)
+    #         if not relative_blob_name:
+    #             continue
+                
+    #         # Determine the local file path
+    #         if use_original_names:
+    #             # Check if this blob has a mapping entry
+    #             blob_filename = os.path.basename(blob.name)
+    #             if blob_filename in uuid_to_original_map:
+    #                 # Use the original path from the mapping
+    #                 original_path = uuid_to_original_map[blob_filename]
+    #                 local_file_path = os.path.join(self.local_directory, original_path)
+    #             else:
+    #                 # If no mapping found, use the blob name as is
+    #                 local_file_path = os.path.join(self.local_directory, relative_blob_name)
+    #         else:
+    #             # Use the blob path directly
+    #             local_file_path = os.path.join(self.local_directory, relative_blob_name)
+            
+    #         # Ensure the directory exists
+    #         os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
+            
+    #         # Download the blob
+    #         blob_client = self.container_client.get_blob_client(blob.name)
+    #         with open(local_file_path, "wb") as file:
+    #             download_stream = blob_client.download_blob()
+    #             file.write(download_stream.readall())
+            
+    #         downloaded_files.append(local_file_path)
+    #         print(f"Downloaded: {blob.name} -> {local_file_path}")
+        
+    #     return downloaded_files
+
 
 
 import azure.search.documents.indexes as azsdi
@@ -2138,6 +2705,7 @@ from docx.document import Document as DocumentObject
 from docx.text.paragraph import Paragraph
 from docx.table import Table
 from docx.section import Section
+
 class DocParsing:
     """
     Handles content from "docx" type files, to process them into documents for usage by "MultiProcessHandler" class. Utilizes the python-docx package.
