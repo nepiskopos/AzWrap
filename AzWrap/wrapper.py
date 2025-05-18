@@ -231,6 +231,7 @@ def validate_container_name(container_name: str) -> bool:
         if container_name[0] == '-' or container_name[-1] == '-' or '--' in container_name:
             raise ValueError("Container name cannot start or end with hyphens or contain consecutive hyphens")
         return True
+from azure.storage.blob import PublicAccess
 
 class StorageAccount: 
     storage_account: azstm.StorageAccount
@@ -271,15 +272,14 @@ class StorageAccount:
             raise ValueError(f"Container with name {container_name} not found.")
         return Container(self, container)
     
-    from azure.storage.blob import PublicAccess
     def get_access_level(public_access_level: Optional[str] = None ) -> PublicAccess | None:
         # Convert public_access_level to appropriate enum value if provided
         access_level = None
         if public_access_level:
             if public_access_level.lower() == 'container':
-                access_level = "container" #PublicAccess.Container
+                access_level = PublicAccess.Container
             elif public_access_level.lower() == 'blob':
-                access_level = "blob" #PublicAccess.Blob
+                access_level = PublicAccess.Blob
             else:
                 raise ValueError("public_access_level must be 'container', 'blob', or None")
 
