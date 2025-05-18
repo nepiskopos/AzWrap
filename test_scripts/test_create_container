@@ -38,7 +38,7 @@ def get_container() -> Container:
         print(container.name)
 
     container: Container = storage_account.get_container(azure_storage_container_name)
-    container = storage_account.create_container("testset002", public_access_level="container")
+    container = storage_account.create_container("testset001", public_access_level="container")
 
     return container
 
