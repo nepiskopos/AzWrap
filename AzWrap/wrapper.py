@@ -277,9 +277,9 @@ class StorageAccount:
         access_level = None
         if public_access_level:
             if public_access_level.lower() == 'container':
-                access_level = PublicAccess.Container
+                access_level = "container" #PublicAccess.Container
             elif public_access_level.lower() == 'blob':
-                access_level = PublicAccess.Blob
+                access_level = "blob" #PublicAccess.Blob
             else:
                 raise ValueError("public_access_level must be 'container', 'blob', or None")
 
@@ -1294,8 +1294,6 @@ class FolderProcessor:
     #         print(f"Downloaded: {blob.name} -> {local_file_path}")
         
     #     return downloaded_files
-
-
 
 import azure.search.documents.indexes as azsdi
 import azure.search.documents.indexes.models as azsdim
