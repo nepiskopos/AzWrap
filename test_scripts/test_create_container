@@ -23,7 +23,8 @@ azure_storage_account_name = AZURE_STORAGE_ACCOUNT_NAME
 azure_storage_container_name = AZURE_STORAGE_CONTAINER_NAME
 
 
-from azwrap import Identity, Subscription, ResourceGroup, StorageAccount, Container
+from azwrap import Identity, Subscription, ResourceGroup, StorageAccount, Container, ResourceNotFoundError
+
 def get_container() -> Container:
     identity = Identity( 
         tenant_id=azure_tenant_id, 
@@ -32,13 +33,22 @@ def get_container() -> Container:
     )
     subscription: Subscription = identity.get_subscription(azure_subscription_id)
     resource_group: ResourceGroup = subscription.get_resource_group(azure_resource_group_name)
-    storage_account:StorageAccount = resource_group.get_storage_account(azure_storage_account_name)
-    containers = storage_account.get_containers() 
-    for container in containers:
-        print(container.name)
+    storage_account:StorageAccount = None 
+    try:
+        storage_account = resource_group.get_storage_account(azure_storage_account_name)
+    except ResourceNotFoundError as e:
+        storage_account = resource_group.create_storage_account(azure_storage_account_name, azure_resource_location)
+
+    # containers = storage_account.get_containers() 
+    # for container in containers:
+    #     print(container.name)
 
     container: Container = storage_account.get_container(azure_storage_container_name)
-    container = storage_account.create_container("testset001", public_access_level="container")
+    if container is not None:
+        if  container.container_client.exists():
+            container.container_client.delete_container()
+
+    container = storage_account.create_container(azure_storage_container_name, public_access_level="container")
 
     return container
 

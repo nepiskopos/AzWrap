@@ -4,6 +4,12 @@ import json
 from dotenv import load_dotenv
 load_dotenv()
 
+from azure.core.exceptions import ResourceNotFoundError as AzureResourceNotFoundError
+
+class ResourceNotFoundError(AzureResourceNotFoundError):
+    def __init__(self, message: str):
+        super().__init__(message)
+
 from collections import defaultdict
 from enum import Enum
 from time import time 
@@ -187,6 +193,8 @@ class ResourceGroup:
         storage_client = self.subscription.get_storage_management_client()
         try:
             account = storage_client.storage_accounts.get_properties(resource_group_name = self.azure_resource_group.name, account_name = account_name)
+        except AzureResourceNotFoundError as e:
+            raise ResourceNotFoundError(f"Storage account with name {account_name} not found. \n {str(e)}")
         except Exception as e:
             print(f"Error at ResourceGroup.get_storage_account({account_name = }): {str(e)}")
             raise e
@@ -357,7 +365,10 @@ class StorageAccount:
                 pass    
         
         # Delete the container
-        container_client.delete_container()
+        try:
+            container_client.delete_container()
+        except AzureResourceNotFoundError as e:
+            raise ResourceNotFoundError(f"Container with name {container_name} not found.")
         print(f"Container '{container_name}' deleted successfully")
         return True
 
