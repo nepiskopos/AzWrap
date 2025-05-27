@@ -9,6 +9,8 @@ AzWrap.egg-info/**
 **/logs/**
 **/remove_*
 working_docs/**
+working_docs_2/**
 test/graph_processor1.py
 test/logs
 **/.DS_Store
+**/.claude/settings.local.json

@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 # Add parent directory to path to import AzWrap
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from AzWrap.wrapper import (
+from azwrap.wrapper import (
     Identity,
     Subscription,
     ResourceGroup,
@@ -23,7 +23,7 @@ from AzWrap.wrapper import (
 from azure.core.exceptions import ClientAuthenticationError
 import azure.search.documents.indexes.models as azsdim
 
-from config import(
+from azwrap.config import(
     AZURE_TENANT_ID,
     AZURE_CLIENT_ID,
     AZURE_CLIENT_SECRET,
@@ -33,15 +33,13 @@ from config import(
     AZURE_STORAGE_CONTAINER_NAME,
 
     AZURE_SEARCH_SERVICE_NAME,
-    AZURE_INDEX_NAME,
+    AZURE_SEARCH_INDEX_NAME,
 
     AZURE_OPENAI_SERVICE_NAME,
-    AZURE_OPENAI_KEY,
     AZURE_OPENAI_ENDPOINT,
+    AZURE_OPENAI_API_KEY,
     AZURE_OPENAI_API_VERSION,
 )
-
-from logger import logger, INFO, ERROR
 
 def get_identity() -> Identity:
     identity:Identity = Identity(AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)
@@ -80,13 +78,13 @@ def get_search_service() -> SearchService:
 
 def get_index() -> SearchIndex: 
     search_service:SearchService = get_search_service()
-    index:SearchIndex = search_service.get_index(AZURE_INDEX_NAME)
+    index:SearchIndex = search_service.get_index(AZURE_SEARCH_INDEX_NAME)
     print(f"{index is not None = }")
     return index
 
 def get_index_copy() -> SearchIndex:
     search_service:SearchService = get_search_service()
-    index:SearchIndex = search_service.get_index(AZURE_INDEX_NAME + "_2")
+    index:SearchIndex = search_service.get_index(AZURE_SEARCH_INDEX_NAME + "_2")
     print(f"{index is not None = }")
     return index
 
@@ -572,6 +570,55 @@ if __name__ == "__main__":
     # Import required modules for test_update_indexer
     from datetime import datetime, timedelta
     
+    # Test Containers 
+    
+    containers = get_containers()
+    print(f"Found {len(containers)} containers")
+    for container in containers:
+        print(f"  - {container.name}")
+
+    storage_account = get_storage_account()
+    from azure.core.exceptions import ResourceNotFoundError
+    container = storage_account.create_container("test-container")
+    
+    #get the worksing_docs_2 folder inside the current folder 
+    files_folder = os.path.join(os.path.dirname(__file__), "..", "working_docs_3")
+
+    #iterate through the files in the folder and print their names
+    for root, dirs, files in os.walk(files_folder):
+        for file in files:
+            print(os.path.join(root, file))
+    # Upload the files to the container
+    for root, dirs, files in os.walk(files_folder):
+        for file in files:
+            file_path = os.path.join(root, file)
+            blob_name = os.path.relpath(file_path, files_folder)
+            container.upload_file(local_file_path=file_path, destination_blob_name=blob_name)
+
+    pass 
+
+
+    # from azwrap.wrapper import FolderProcessingResults, FolderProcessor
+    # folder_processor = FolderProcessor(files_folder)
+
+    # FolderProcessingResults = folder_processor.upload_directory(
+    #     storage_account=storage_account,
+    #     container_name="test-container")
+    
+    
+    
+    
+    
+    # try:
+    #     storage_account.delete_container("test-container")
+    # except ResourceNotFoundError as e:
+    #     print(f"Error deleting container: {str(e)}")
+
+    
+    
+
+    exit() 
+
     # Test the indexer functionality
     print("\n=== Testing SearchIndexerManager ===")
     indexer_manager = get_indexer_manager()
