@@ -2346,16 +2346,11 @@ class GenDocParsing:
                 # Skip lines that appear to be section headers to avoid duplication
                 paragraph_text = block.text.strip()
                 is_header_line = False
-               
-                # Check if this paragraph text contains/matches the section name
-                if current_section_title in paragraph_text and len(paragraph_text) < len(current_section_title) + 10:
+                
+                # Check if this paragraph text contains the section name
+                detected_title = self.parse_header_lines([paragraph_text])
+                if detected_title and detected_title.strip() == current_section_title.strip():
                     is_header_line = True
-               
-                # Check if it's a numbered section header (e.g., "1. Section Name")
-                if re.match(r'^\d+(?:\.\d+)*\.?\s+', paragraph_text):
-                    header_part = re.sub(r'^\d+(?:\.\d+)*\.?\s+', '', paragraph_text)
-                    if header_part.strip() == current_section_title.strip():
-                        is_header_line = True
                
                 # Only add content that isn't a header line
                 if not is_header_line:
@@ -3077,7 +3072,7 @@ class MultiSectionHandler:
             'section_name': provided_section_name,
             'doc_name': self.file_name,
             'domain': self.domain,
-            'section_separator_type': 'heading',  # Default separator type
+            'section_separator_type': 'header',  # Default separator type
             'section_llm_description': section_summary,
             'section_added_at': datetime.now(timezone.utc)
         }
