@@ -4,10 +4,11 @@ Azure Wrapper Library - Simplifies interaction with Azure services
 """
 
 # Version
-__version__ = "0.1.3"
+__version__ = "0.1.7"
 
 # Identity and Resource Management
 from .wrapper import (
+    ResourceNotFoundError,
     Identity,
     Subscription,
     ResourceGroup,
@@ -37,6 +38,7 @@ from .main import main as cli_main
 
 # Convenient access to common classes and functions
 __all__ = [
+    "ResourceNotFoundError",
     # Identity and Resource Management
     "Identity",
     "Subscription", 

@@ -15,6 +15,7 @@ AzWrap.egg-info/top_level.txt
 azwrap/__init__.py
 azwrap/cli.py
 azwrap/cli_config.py
+azwrap/config.py
 azwrap/main.py
 azwrap/wrapper.py
 azwrap.egg-info/PKG-INFO
