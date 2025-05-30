@@ -2719,26 +2719,29 @@ class GenDocParsing:
     Handles content from "docx" type files, to process them into documents for usage by other classes. Utilizes the python-docx package.
  
     Parameters:
-        doc_instance: python-docx Document object to be parsed
         openai_client: Azure OpenAI client for AI processing
-        doc_name: Name of the document being processed
         model_name: Name of the AI model to use
     """
-    doc_instance: DocumentObject
     openai_client: OpenAIClient
     model_name: str
-    doc_name: str
     tokenizer: Encoding
     
-    def __init__(self, doc_instance, openai_client, doc_name, model_name):
-        print(f"Initializing GenDocParsing for document: {doc_name}")
-        self.doc_instance = doc_instance
+    def __init__(self, openai_client, model_name):
+        print(f"Initializing GenDocParsing")
         self.openai_client = openai_client
-        self.doc_name = doc_name
         self.model_name = model_name
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
  
-    def get_section_header_lines(self, section):
+    def get_section_header_lines(self, section: Section):
+        """
+        Helper function to extract text lines from a section's header.
+
+        Parameters:
+            section: The python-docx Section object for the header.
+        
+        Returns:
+            lines: List of text lines from the section header.
+        """
         try:
             if not section or not section.header:
                 return []
@@ -2761,7 +2764,16 @@ class GenDocParsing:
         except Exception as e:
             return []
  
-    def parse_header_lines(self, header_lines):
+    def parse_header_lines(self, header_lines: List[str]):
+        """
+        Helper function to parse header lines to isolate the process title.
+
+        Parameters:
+            header_lines: List of text lines from the section header.
+        
+        Returns:
+            The identified title segment in the provided lines.
+        """
         # Pattern to catch numbered sections in Greek documents
         number_pattern = re.compile(r'^\s*(\d+(?:\.\d+)*\.?)\s*$')
        
@@ -2822,9 +2834,43 @@ class GenDocParsing:
                 if i + 1 < len(header_lines):
                     header_title = header_lines[i + 1].strip()
                     return header_title        
-        return None
+        
+        # Otherwise utilize LLM        
+        content = ""
+        for line in header_lines:
+            content += line + "\n"
+            
+        messages = [
+            {"role": "user", "content": f"""Having received the following content lines from a '.docx' file's Section Header, with greek text, try to locate and retrieve the Section's title. 
+             
+             Content to Retrieve the title from:
+                \"\"\"
+                {content}
+                \"\"\"
+                
+            Provide a response **ONLY** with the title, and no other text content."""}
+            ]
+        
+        output_llm = self.openai_client.generate_chat_completion(
+            model=self.model_name,
+            messages=messages,
+            temperature=0,
+            max_tokens=None
+        )
+
+        ai_response_content = output_llm["content"]
+        return ai_response_content
  
-    def extract_header_info(self, section):
+    def extract_header_info(self, section: Section):
+        """
+        Function to extract the section title from a section header.
+        
+        Parameters:
+            section: The python-docx Section object for the header.
+        
+        Returns:
+            header_title: The header section's title.
+        """
         try:
             if not section:
                 return None
@@ -2835,10 +2881,15 @@ class GenDocParsing:
         except Exception as e:
             return None
  
-    def iterate_block_items_with_section(self, doc):
+    def iterate_block_items_with_section(self, doc: DocumentObject):
         """
-        Generator that iterates through all content blocks (paragraphs and tables) in a Word document
-        while tracking which section they belong to.
+        Function to iterate through the document's content blocks (paragraphs, tables).
+
+        Parameters:
+            doc: The python-docx Document object to parse.
+
+        Yields:
+            The section's index and the content block.
         """
         parent_elm = doc._element.body
         current_section_index = 0
@@ -2895,7 +2946,15 @@ class GenDocParsing:
             yield current_section_index, None, {"error": str(e)}
  
  
-    def extract_table_data(self, table):
+    def extract_table_data(self, table: Table):
+        """Extract text data from a table.
+        
+        Parameters: 
+            Python-docx Table object.
+            
+        Returns:
+            Joined cells with ' - '.
+        """
         data = []
         for row in table.rows:
             row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
@@ -2905,14 +2964,20 @@ class GenDocParsing:
                 data.append(row_string)
         return '\n'.join(data)
    
-    def extract_data(self):
+    def extract_data(self, doc_instance: DocumentObject, doc_name: str):
         """
         Extract document data using a generalized section-based approach.
         Works with both table and text-based sections.
+        
+        Parameters:
+            doc_instance: The python-docx "Document" object 
+            doc_name: Name of the document being processed
+            
+        Returns:
+            Dictionary for each 
         """
         print("Extracting document data...")
-        doc = self.doc_instance
-        doc_name = self.doc_name
+        doc = doc_instance
         # Dictionary to store sections: {section_title: section_content}
         sections_dict = {}
        
@@ -2981,21 +3046,15 @@ class GenDocParsing:
         sections_dict = {k: v for k, v in sections_dict.items() if v.strip() and k != "Metadata"}
        
         return sections_dict
-   
-    def count_tokens(self, text):
-        """
-        Count the number of tokens in a given text using the tokenizer.
-        """
-        return len(self.tokenizer.encode(text))
- 
-    def chunk_section_content(self, section_content, chunk_size=1500, overlap=150):
+    
+    def chunk_section_content(self, section_content: str, chunk_size=1500, overlap=150):
         """
         Split section content into chunks of chunk_size tokens with overlap tokens of context before and after.
        
-        Args:
-            section_content (str): The full text content of a section
-            chunk_size (int): Target size of each chunk in tokens
-            overlap (int): Number of tokens to overlap between chunks
+        Parameters:
+            section_content: The full text content of a section
+            chunk_size: Target size of each chunk in tokens
+            overlap: Number of tokens to overlap between chunks
            
         Returns:
             list: List of content chunks
@@ -3010,7 +3069,7 @@ class GenDocParsing:
         # Calculate tokens for each paragraph
         paragraph_tokens = []
         for p in paragraphs:
-            tokens = self.count_tokens(p)
+            tokens = len(self.tokenizer.encode(p))
             paragraph_tokens.append((p, tokens))
        
         # Create chunks based on token count
@@ -3031,7 +3090,7 @@ class GenDocParsing:
                
                 # Go backwards through current_chunk to find overlap paragraphs
                 for p in reversed(current_chunk):
-                    p_tokens = self.count_tokens(p)
+                    p_tokens = len(self.tokenizer.encode(p))
                     if overlap_token_count + p_tokens <= overlap:
                         overlap_paragraphs.insert(0, p)
                         overlap_token_count += p_tokens
@@ -3052,86 +3111,93 @@ class GenDocParsing:
        
         return chunks
    
-    def generate_section_summary(self, section_title, chunks, max_length=1000):
+    def generate_section_summary(self, section_title: str, chunks: List[str], max_length=1000):
         """
         Generate a concise summary of a section using Azure OpenAI based on its chunks.
        
-        Args:
-            section_title (str): The title of the section
-            chunks (list): List of content chunks from the section
-            max_length (int): Maximum length of summary in tokens
+        Parameters:
+            section_title: The title of the section
+            chunks: List of content chunks from the section
+            max_length: Maximum length of summary in tokens
            
         Returns:
             str: Generated summary of the section
         """
+        def summarize_text(title, content, max_length):
+            import math
+            word_number = math.ceil(max_length / 3)  # average tokens per word - for greek language
+            """
+            Helper method to call Azure OpenAI for summarization.
+            """
+            try:
+                prompt = f"""
+                Summary Length: Summary length should be at \"{word_number}\" words.
+                Document Title: \"{title}\"
+    
+                Instructions:
+                - Analyze the content and extract the most relevant and retrievable information.
+                - Preserve key entities, concepts, steps, definitions, and decision points.
+                - Avoid generalizations, vague language, and redundant phrasing.
+                - Avoid introductions and stick **ONLY** to the the summary itself.
+    
+                Content to Summarize:
+                \"\"\"
+                {content}
+                \"\"\"
+    
+                Generate a summary in GREEK below that strictly adheres to the above constraints.
+                """
+    
+                messages = [
+                    {"role": "system", "content": "You are a domain-aware summarization engine designed to generate accurate summaries of banking procedures."},
+                    {"role": "user", "content": prompt}
+                ]
+                
+                response = self.openai_client.generate_chat_completion(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=0,
+                    max_tokens= None
+                )
+                    
+                return response['content']
+            except Exception as e:
+                print(f"Error in API call: {e}")
+                return f"Error generating summary: {str(e)}"
         try:
             # If there's only one small chunk, summarize it directly
-            if len(chunks) == 1 and self.count_tokens(chunks[0]) < 6000:
-                return self.summarize_text(section_title, chunks[0], max_length)
+            if len(chunks) == 1 and len(self.tokenizer.encode(chunks[0])) < 6000:
+                return summarize_text(section_title, chunks[0], max_length)
            
             # For multiple chunks or large chunks, summarize each chunk first
             chunk_summaries = []
             for i, chunk in enumerate(chunks):
-                chunk_summary = self.summarize_text(f"Chunk {i+1}/{len(chunks)} of section: {section_title}", chunk, 200)
+                chunk_summary = summarize_text(f"Chunk {i+1}/{len(chunks)} of section: {section_title}", chunk, 200)
                 chunk_summaries.append(chunk_summary)
            
             # Then summarize the combined chunk summaries
             combined_summaries = "\n\n".join(chunk_summaries)
-            return self.summarize_text(f"Complete section: {section_title}", combined_summaries, max_length)
+            return summarize_text(f"Complete section: {section_title}", combined_summaries, max_length)
                
         except Exception as e:
             print(f"Error generating summary for section '{section_title}': {e}")
             return f"Error generating summary: {str(e)}"
- 
-    def summarize_text(self, title, content, max_length):
-        """
-        Helper method to call Azure OpenAI for summarization.
-        """
-        try:
-            prompt = f"""
-            You are a domain-aware summarization engine designed to generated summaries optimized for retrieval-augmented generation (RAG) systems.
- 
-            Document Title: \"{title}\"
-            Desired Summary Length: ({max_length} tokens max)
- 
-            Instructions:
-            - Analyze the content and extract the most relevant and retrievable information.
-            - Preserve key entities, concepts, steps, definitions, and decision points.
-            - Avoid generalizations, vague language, and redundant phrasing.
- 
-            Content to Summarize:
-            \"\"\"
-            {content}
-            \"\"\"
- 
-            Generate a summary in GREEK below that strictly adheres to the above constraints.
-            """
- 
-            messages = [
-                {"role": "system", "content": "You are a banking expert who creates accurate summaries of banking procedures. You can understand Greek text and summarize it in English."},
-                {"role": "user", "content": prompt}
-            ]
-            
-            response = self.openai_client.generate_chat_completion(
-                model=self.model_name,
-                messages=messages,
-                temperature=0,
-                max_tokens=None
-            )
-                
-            return response['content']
-        except Exception as e:
-            print(f"Error in API call: {e}")
-            return f"Error generating summary: {str(e)}"
        
-    def process_document_with_summaries(self):
+    def process_document_with_summaries(self, doc_instance: DocumentObject, doc_name: str):
         """
-        Process a document, extract sections, generate summaries, and save to file.
+        Main method: Converts the python-docx object into a doctionary of chunks and summaries to be indexed.
+        
+        Parameters:
+            doc_instance: The python-docx "Document" object 
+            doc_name: Name of the document being processed
+
+        Returns:
+            The final dictionary of dictionaries from the python-docx object.
         """
-        print(f"Processing document: {self.doc_name}")
+        print(f"Processing document: {doc_name}")
        
         # Extract sections
-        sections_dict = self.extract_data()
+        sections_dict = self.extract_data(doc_instance, doc_name)
        
         # Process each section
         processed_sections = {}
@@ -3157,36 +3223,28 @@ class DocParsing:
     Handles content from "docx" type files, to process them into documents for usage by "MultiProcessHandler" class. Utilizes the python-docx package.
 
     Parameters:
-        doc_instance: python-docx Document object to be parsed
         openai_client: Azure OpenAI client for AI processing
         json_format: Template for the JSON structure
         domain: Domain category for the document
-        sub_domain: Sub-domain category for the document
         model_name: Name of the AI model to use
-        doc_name: Name of the document being processed
     """
-    doc_instance: DocumentObject
     openai_client: OpenAIClient
     json_format: Dict[str, Any]
     domain: str
-    sub_domain: str
     model_name: str
-    doc_name: str
 
-    def __init__(self, doc_instance: DocumentObject, openai_client: OpenAIClient, json_format: Dict[str, Any], domain: str, sub_domain: str, model_name: str, doc_name: str):
-        print(f"Initializing DocParsing for document: {doc_name}")
-        self.doc_instance = doc_instance
+    def __init__(self, openai_client: OpenAIClient, json_format: Dict[str, Any], domain: str, model_name: str):
+        print(f"Initializing DocParsing")
         self.openai_client = openai_client
         self.json_format = json_format
         self.domain = domain
-        self.sub_domain = sub_domain
         self.model_name = model_name
-        self.doc_name = doc_name
     
     def _get_section_header_lines(self, section: Section) -> List[str]:
-        """Helper function to extract text lines from a section's header.
+        """
+        Helper function to extract text lines from a section's header.
 
-        Args:
+        Parameters:
             section: The python-docx Section object for the header.
         
         Returns:
@@ -3215,9 +3273,10 @@ class DocParsing:
             return []
 
     def _parse_header_lines(self, header_lines: List[str]) -> str:
-        """Helper function to parse header lines to isolate the process title.
+        """
+        Helper function to parse header lines to isolate the process title.
 
-        Args:
+        Parameters:
             header_lines: List of text lines from the section header.
         
         Returns:
@@ -3269,9 +3328,10 @@ class DocParsing:
         return potential_title
 
     def _extract_header_info(self, section: Section) -> str:
-        """Function to extracts the process title from a section header.
+        """
+        Function to extract the process title from a section header.
         
-        Args:
+        Parameters:
             section: The python-docx Section object for the header.
         
         Returns:
@@ -3286,9 +3346,10 @@ class DocParsing:
             return "Unknown Header" # Return a default on error
 
     def _iterate_block_items_with_section(self, doc: DocumentObject):
-        """Function to iterate through the document's content blocks (paragraphs, tables).
+        """
+        Function to iterate through the document's content blocks (paragraphs, tables).
 
-        Args:
+        Parameters:
             doc: The python-docx Document object to parse.
 
         Yields:
@@ -3319,8 +3380,9 @@ class DocParsing:
     def _extract_table_data(self, table: Table):
         """Extract text data from a table.
         
-        Args: 
+        Parameters: 
             Python-docx Table object.
+            
         Returns:
             Joined cells with ' - '.
         """
@@ -3331,8 +3393,13 @@ class DocParsing:
                 data.append(' - '.join(row_cells))
         return '\n'.join(data) # Join rows with newline
 
-    def _is_single_process(self) -> Tuple[bool, str]:
-        """Checks if the document contains a single process based on headers.
+    def _is_single_process(self, doc_instance: DocumentObject, doc_name: str) -> Tuple[bool, str]:
+        """
+        Checks if the document contains a single process based on headers.
+        
+        Parameters:
+            doc_instance: The python-docx "Document" object
+            doc_name: Name of the document being processed
         
         Returns:
             True if single process, False if multi-process, and the title.
@@ -3341,11 +3408,11 @@ class DocParsing:
         section_headers = set()
         first_meaningful_header = None
 
-        if not self.doc_instance.sections:
+        if not doc_instance.sections:
             print("Document has no sections.")
-            return True, self.doc_name # Treat as single process with doc name as title
+            return True, doc_name # Treat as single process with doc name as title
 
-        for section_index, section in enumerate(self.doc_instance.sections):
+        for section_index, section in enumerate(doc_instance.sections):
             header_title = self._extract_header_info(section)
             if header_title and header_title != "Metadata" and header_title != "Unknown Header":
                 section_headers.add(header_title)
@@ -3356,30 +3423,34 @@ class DocParsing:
         print(f"Found {num_unique_headers} unique meaningful header(s): {section_headers if section_headers else 'None'}")
 
         if num_unique_headers <= 1: # Treat 0 or 1 unique headers as single process
-            title = first_meaningful_header if first_meaningful_header else self.doc_name
+            title = first_meaningful_header if first_meaningful_header else doc_name
             print(f"Document treated as single process with title: '{title}'")
             return True, title
         else:
             print("Document identified as multi-process.")
             return False, None # Title is None for multi-process
 
-    def extract_data(self) -> Dict[Any, str]:
+    def extract_data(self, doc_instance: DocumentObject, doc_name: str) -> Dict[Any, str]:
         """
         Extracts content from the document, handling single/multi-process structures.
+        
+        Parameters:
+            doc_instance: The python-docx "Document" object
+            doc_name: Name of the document being processed
 
         Returns:
             dict: Keys are formatted headers/process names, values are extracted content strings.
         """
         print("Extracting data based on document structure...")
         data_dict = {}
-        is_single, process_title = self._is_single_process()
+        is_single, process_title = self._is_single_process(doc_instance, doc_name)
 
         if is_single:
             safe_title = re.sub(r'[\\/*?:"<>|]', '_', process_title) # Basic sanitization
             header_key = f"{safe_title}_single_process"
             print(f"Building content for single process: '{header_key}'")
             data_dict[header_key] = []
-            for _, block in self._iterate_block_items_with_section(self.doc_instance):
+            for _, block in self._iterate_block_items_with_section(doc_instance):
                 if isinstance(block, Paragraph):
                     text = block.text.strip()
                     if text: data_dict[header_key].append(text)
@@ -3392,24 +3463,24 @@ class DocParsing:
             current_header_key = None
             current_section_content = []
 
-            for section_index, block in self._iterate_block_items_with_section(self.doc_instance):
+            for section_index, block in self._iterate_block_items_with_section(doc_instance):
                 if section_index > last_section_index:
                     if current_header_key and current_section_content:
                          data_dict[current_header_key] = "\n".join(current_section_content) # Join previous section
                          print(f"Finalized content for section {last_section_index}: '{current_header_key}' ({len(current_section_content)} blocks)")
 
-                    if section_index < len(self.doc_instance.sections):
-                         header_title = self._extract_header_info(self.doc_instance.sections[section_index])
+                    if section_index < len(doc_instance.sections):
+                         header_title = self._extract_header_info(doc_instance.sections[section_index])
                          if not header_title or header_title == "Metadata":
                              header_title = f"Unknown_Section_{section_index}"
                          safe_header = re.sub(r'[\\/*?:"<>|]', '_', header_title)
-                         current_header_key = f"{self.doc_name}_header_{safe_header}"
+                         current_header_key = f"{doc_name}_header_{safe_header}"
                          print(f"New Section {section_index}: Header='{header_title}', Key='{current_header_key}'")
                          if current_header_key not in data_dict:
                               data_dict[current_header_key] = []
                          current_section_content = [] # Reset buffer
                     else:
-                         print(f"Warning: Block referenced section_index {section_index} > section count {len(self.doc_instance.sections)}. Using last header '{current_header_key}'.")
+                         print(f"Warning: Block referenced section_index {section_index} > section count {len(doc_instance.sections)}. Using last header '{current_header_key}'.")
 
                     last_section_index = section_index
 
@@ -3439,13 +3510,14 @@ class DocParsing:
         print(f"Data extraction complete. Found {len(final_data)} process/section block(s).")
         return final_data
 
-    def update_json_with_ai(self, content_to_parse: str, process_identifier: str) -> str:
+    def update_json_with_ai(self, content_to_parse: str, process_identifier: str, doc_name: str) -> str:
         """
         Uses AI to parse document content into the structured JSON format.
 
         Parameters:
             content_to_parse: The text content extracted for a specific process/section.
             process_identifier: The identifier (like header key) for this process/section.
+            doc_name: Name of the document being processed
 
         Returns:
             str: JSON string containing the parsed content, or None on failure.
@@ -3472,7 +3544,7 @@ class DocParsing:
 
             messages=[
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": f"Document Source Name: {self.doc_name}\nProcess/Section Identifier: {process_identifier}\n\nContent to Parse:\n---\n{content_to_parse}\n---"}
+                {"role": "user", "content": f"Document Source Name: {doc_name}\nProcess/Section Identifier: {process_identifier}\n\nContent to Parse:\n---\n{content_to_parse}\n---"}
             ]
 
             output_llm = self.openai_client.generate_chat_completion(
@@ -3504,12 +3576,14 @@ class DocParsing:
             print(f"Error during AI call for '{process_identifier}': {e}")
             return None
 
-    def _process_doc(self, ai_json_string: str) -> Dict[str, Any]:
+    def _process_doc(self, ai_json_string: str, doc_name: str, sub_domain: str) -> Dict[str, Any]:
         """
         Processes the AI response string, validates JSON and adds metadata.
 
         Parameters:
             ai_json_string: Raw JSON string from the AI.
+            doc_name: Name of the document being processed
+            sub_domain: Name of the document sub-domain
         """
         try:
             # Parse the AI's JSON string into a Python dictionary
@@ -3517,10 +3591,10 @@ class DocParsing:
 
             # Create a new ordered dictionary to control the final structure
             ordered_data = {}
-            ordered_data["doc_name"] = self.doc_name
+            ordered_data["doc_name"] = doc_name
             ordered_data["process_name"] = json_data.get("process_name", "Unknown Process Name")
             ordered_data["domain"] = self.domain
-            ordered_data["subdomain"] = self.sub_domain
+            ordered_data["subdomain"] = sub_domain
 
             # Add the rest of the fields from the AI response
             for key, value in json_data.items():
@@ -3531,16 +3605,21 @@ class DocParsing:
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON from AI response: {e}")
 
-    def doc_to_json(self) -> List[Dict[str, Any]]:
+    def doc_to_json(self, doc_instance: DocumentObject, doc_name: str, sub_domain: str) -> List[Dict[str, Any]]:
         """
         Main method: Converts the python-docx object into a list of dictionaries to be indexed.
+        
+        Parameters:
+            doc_instance: The python-docx "Document" object
+            doc_name: Name of the document being processed
+            sub_domain: Name of the document sub-domain
 
         Returns:
             The final list of dictionaries from the python-docx object.
         """
-        print(f"Starting document-to-JSON conversion for '{self.doc_name}'...")
+        print(f"Starting document-to-JSON conversion for '{doc_name}'...")
 
-        extracted_data_dict = self.extract_data()
+        extracted_data_dict = self.extract_data(doc_instance, doc_name)
         
         ordered_data = []
         for process_key, content in extracted_data_dict.items():
@@ -3554,16 +3633,16 @@ class DocParsing:
             max_len = 100 # Max filename length
             safe_filename_base = safe_filename_base[:max_len] if len(safe_filename_base) > max_len else safe_filename_base
 
-            ai_json_result = self.update_json_with_ai(content, process_key)
+            ai_json_result = self.update_json_with_ai(content, process_key, doc_name)
 
             if ai_json_result:
-                ordered_data.append(self._process_doc(ai_json_result))
+                ordered_data.append(self._process_doc(ai_json_result, doc_name, sub_domain))
             else:
                 print(f"AI parsing failed for '{process_key}'.")
-                print(f"{self.doc_name} - Section '{process_key}' - AI Parsing Failed")
+                print(f"{doc_name} - Section '{process_key}' - AI Parsing Failed")
 
 
-        print(f"\nDocument-to-list conversion completed for '{self.doc_name}'")
+        print(f"\nDocument-to-list conversion completed for '{doc_name}'")
         return ordered_data
 
 import hashlib
