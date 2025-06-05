@@ -611,17 +611,16 @@ class Container:
             elif blob_type == BlobType.APP_PDF:
                 # PDF documents
                 try:
-                    import PyPDF2
-                    pdf_file = BytesIO(content)
-                    pdf_reader = PyPDF2.PdfReader(pdf_file)
+                    import fitz  # PyMuPDF
                     
-                    text = ""
-                    for page_num in range(len(pdf_reader.pages)):
-                        text += pdf_reader.pages[page_num].extract_text()
+                    # Open PDF from bytes content
+                    pdf_document = fitz.open(stream=content, filetype="pdf")
                     
-                    return text
+                    return pdf_document
                 except ImportError:
-                    raise ImportError("The PyPDF2 package is required to read PDF files. Install it with 'pip install PyPDF2'")
+                    raise ImportError("The PyMuPDF package is required to read PDF files. Install it with 'pip install PyMuPDF'")
+                except Exception as e:
+                    raise Exception(f"Error reading PDF: {str(e)}")
                     
             elif blob_type == BlobType.MS_EXCEL:
                 # Excel documents
@@ -3218,6 +3217,9 @@ class GenDocParsing:
        
         return processed_sections
 
+
+
+
 class DocParsing:
     """
     Handles content from "docx" type files, to process them into documents for usage by "MultiProcessHandler" class. Utilizes the python-docx package.
@@ -4302,4 +4304,105 @@ class MultiProcessHandler:
                 print(f"Successfully uploaded records for {record['core'].get('process_name', 'Unknown')}")
         except Exception as e:
             print(f"Error uploading records: {e}")
+
+
+from typing import Union
+from pathlib import Path
+from PIL import Image
+import io
+import base64
+
+
+class OCRTextExtractor:
+    """
+    Extracts Greek text from images using an OpenAI client.
+
+    Parameters:
+        openai_client: The OpenAI client for LLM-based OCR
+        model_name: The name of the OpenAI model to use for text extraction
+    """
+    def __init__(self, openai_client , model_name: str = "gpt-4.1"):
+        """
+        Initialize the OCRTextExtractor.
+
+        Parameters:
+            openai_client: The OpenAI client for LLM-based OCR
+            model_name: The name of the OpenAI model to use for text extraction
+        """
+        self.openai_client = openai_client
+        self.model_name = model_name  
+    def encode_image(self, image_input: Union[str, Path, bytes, Image.Image]) -> str:
+        """
+        Encode image to base64 string.
+        Accepts file path, bytes, or PIL Image.
+
+        Parameters:
+            image_input: File path, bytes, or PIL Image
+        Returns:
+            Base64-encoded string of the image
+        """
+        if isinstance(image_input, (str, Path)):
+            with open(image_input, "rb") as f:
+                image_bytes = f.read()
+        elif isinstance(image_input, Image.Image):
+            buffered = io.BytesIO()
+            image_input.save(buffered, format="JPEG")
+            image_bytes = buffered.getvalue()
+        elif isinstance(image_input, bytes):
+            image_bytes = image_input
+        else:
+            raise ValueError("Unsupported image_input type")
+        return base64.b64encode(image_bytes).decode('utf-8')
+
+    def extract_text_from_image(self, image_input: Union[str, Path, bytes, Image.Image], custom_prompt: str = None) -> str:
+        """
+        Extract Greek text from an image content or path using the OpenAI client.
+
+        Parameters:
+            image_input: File path, bytes, or PIL Image
+            custom_prompt: Optional custom prompt for the LLM
+        Returns:
+            Extracted Greek text as a string
+        """
+        # Encode the image input to base64 string
+        base64_image = self.encode_image(image_input)
+
+        default_prompt = (
+            """
+            Please extract all text from this image. The text is primarily in Greek.\n\n"
+            "Instructions:\n"
+            "1. Transcribe ALL visible text exactly as it appears\n"
+            "2. Maintain the original formatting and line breaks where possible\n"
+            "3. If there are multiple columns or sections, clearly separate them\n"
+            "4. Include any numbers, dates, or symbols that appear with the text\n"
+            "5. If some text is unclear or partially obscured, indicate this with [unclear] or your best interpretation in brackets\n"
+            "6. Preserve Greek characters accurately\n\n"
+            "Please provide only the extracted text without additional commentary." """
+        )
+        prompt = custom_prompt or default_prompt
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "detail": "high"
+                        }
+                    }
+                ]
+            }
+        ]
+
+        response = self.openai_client.generate_chat_completion(
+            model= self.model_name,
+            messages=messages,
+            temperature=0,
+            max_tokens=None
+        )
+        return response['content']
+        
 
