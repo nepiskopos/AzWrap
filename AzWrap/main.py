@@ -985,7 +985,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_document(model, document_path)
@@ -1034,7 +1034,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_layout(document_path)
@@ -1083,7 +1083,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_receipt(document_path)
@@ -1132,7 +1132,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_invoice(document_path)
@@ -1181,7 +1181,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_id_document(document_path)
@@ -1230,7 +1230,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_business_card(document_path)
@@ -1279,7 +1279,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_w2(document_path)
@@ -1328,7 +1328,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client and analyze
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 if document_path:
                     result = client.analyze_custom_document(model_id, document_path)
@@ -1377,7 +1377,7 @@ def create_command_function(group_name, cmd_name, cmd_config):
                     return None
                 
                 # Get client
-                client = doc_service.get_document_intelligence_client()
+                client = doc_service.get_document_analysis_client()
                 
                 # Collect document paths
                 document_paths = []
