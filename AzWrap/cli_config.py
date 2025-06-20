@@ -434,6 +434,130 @@ CLI_CONFIG = {
                     ]
                 }
             }
+        },
+        
+        # Document Intelligence Commands
+        "document": {
+            "description": "Manage Azure Document Intelligence services and analyze documents",
+            "subcommands": {
+                "list": {
+                    "description": "List Document Intelligence services",
+                    "options": [
+                        {"name": "subscription-id", "short": "s", "required": False, "help": "Azure subscription ID"},
+                        {"name": "resource-group", "short": "g", "required": False, "help": "Resource group name"}
+                    ]
+                },
+                "get": {
+                    "description": "Get details of a specific Document Intelligence service",
+                    "options": [
+                        {"name": "name", "short": "n", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "subscription-id", "short": "s", "required": False, "help": "Azure subscription ID"}
+                    ]
+                },
+                "analyze": {
+                    "description": "Analyze a document using Document Intelligence",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "model", "short": "m", "required": True, "help": "Model ID (e.g., prebuilt-layout, prebuilt-receipt, custom-model-id)"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local document file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of document to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-layout": {
+                    "description": "Analyze document layout to extract text, tables, and structure",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local document file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of document to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-receipt": {
+                    "description": "Analyze receipt to extract key information",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local receipt file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of receipt to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-invoice": {
+                    "description": "Analyze invoice to extract key information",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local invoice file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of invoice to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-id": {
+                    "description": "Analyze identity document to extract key information",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local ID document file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of ID document to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-business-card": {
+                    "description": "Analyze business card to extract key information",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local business card file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of business card to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-w2": {
+                    "description": "Analyze W-2 tax form to extract key information",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local W-2 file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of W-2 to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-custom": {
+                    "description": "Analyze document using a custom trained model",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "model-id", "short": "m", "required": True, "help": "Custom model ID"},
+                        {"name": "document-path", "short": "d", "required": False, "help": "Path to local document file"},
+                        {"name": "document-url", "short": "u", "required": False, "help": "URL of document to analyze"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-file", "short": "f", "required": False, "help": "Save results to file"}
+                    ]
+                },
+                "analyze-batch": {
+                    "description": "Analyze multiple documents in batch",
+                    "options": [
+                        {"name": "service-name", "short": "s", "required": True, "help": "Document Intelligence service name"},
+                        {"name": "resource-group", "short": "g", "required": True, "help": "Resource group name"},
+                        {"name": "model", "short": "m", "required": True, "help": "Model ID to use for all documents"},
+                        {"name": "document-folder", "short": "d", "required": False, "help": "Folder containing documents to analyze"},
+                        {"name": "document-list", "short": "l", "required": False, "help": "File containing list of document paths/URLs"},
+                        {"name": "subscription-id", "required": False, "help": "Azure subscription ID"},
+                        {"name": "output-folder", "short": "f", "required": False, "help": "Folder to save batch results"}
+                    ]
+                }
+            }
         }
     },
     "global_options": [
