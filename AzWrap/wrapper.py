@@ -268,6 +268,9 @@ class StorageAccount:
         container_client = client.get_container_client(container_name)
         return container_client
 
+    def get_tables_client(self) -> "Table": 
+        return Table(self)
+
     def get_containers(self) -> List[ContainerProperties]:
         client = self.get_blob_service_client()
         containers = client.list_containers()
@@ -4406,3 +4409,80 @@ class OCRTextExtractor:
         return response['content']
         
 
+import pandas as pd
+from azure.data.tables import TableServiceClient, TableClient
+from azure.core.exceptions import ResourceExistsError
+
+class Table:
+    storage_account: StorageAccount
+    container_client: TableServiceClient
+
+    def __init__(self, storage_account: StorageAccount):
+        self.storage_account = storage_account
+        self.connection_string = storage_account.connection_string_description
+        self.table_service_client = TableServiceClient.from_connection_string(conn_str=self.connection_string)
+
+    def get_sa_tables(self) -> list:
+        tables = [table.name for table in self.table_service_client.list_tables()]
+        return tables
+        
+    # Add the sa table create function
+    def create_sa_table(self, table_name: str) -> TableClient:
+        # Create table in the storage account if not exists
+        table_client = self.table_service_client.create_table_if_not_exists(table_name)
+        # Return the tableItemId
+        return table_client
+
+    # Add the sa table delete function
+    def delete_sa_table(self,table_name: str) -> str:
+        # Delete a provided table
+        self.table_service_client.delete_table(table_name)
+        return f"The table {table_name} succesfully deleted."
+
+    def upload_entities_from_csv(self, csv_path: str, table_name: str, table_schema: list[str], delimeter: str = '|') -> str:
+        # Get the table to populate with file entities
+        table_client = self.table_service_client.get_table_client(table_name)
+        # Reading the csv or txt to a pandas dataframe
+        raw_files_df = pd.read_csv(csv_path, sep=delimeter, encoding='utf-8', names=table_schema, header=None)
+        # Convert this to a list of entries
+        entities = raw_files_df.to_dict(orient='records')
+        skipped_files = 0
+        # Uploading all entries of the csv in table
+        for i, entity in enumerate(entities):
+            try:
+                table_client.create_entity(entity=entity)
+            except ResourceExistsError:
+                # Entity already exists, replace it
+                table_client.upsert_entity(entity=entity, mode='replace')
+                skipped_files +=1
+        
+        if skipped_files > 0:
+            response = f"Successfully uploaded {i+1 - skipped_files} entities and {skipped_files} replaced because they already exists in {table_name} table from the {csv_path}"
+        else:
+            response = f"Successfully uploaded {i+1} entities in {table_name} table from the {csv_path}"
+        # Returning a log message
+        return response
+
+    # Add the delete entites to sa table function based csv
+    def delete_entities_from_csv(self, csv_path: str, table_name: str,  table_schema: list[str], delimeter: str = '|') -> str:
+        # Get the table to populate with file entities
+        table_client = self.table_service_client.get_table_client(table_name)
+        # Reading the csv or txt to a pandas dataframe
+        raw_files_df = pd.read_csv(csv_path, sep=delimeter, encoding='utf-8', names=table_schema, header=None)
+        # Convert this to a list of entries
+        entities = raw_files_df.to_dict(orient='records')
+        # Uploading all entries of the csv in table
+        for i, entity in enumerate(entities):
+            table_client.delete_entity(partition_key = entity['PartitionKey'], row_key = entity['RowKey'])
+        # Returning a log message
+        return f"Succesfully deleted {i+1} entities  in {table_name} from the {csv_path}"
+
+    def get_entities(self, table_name: str) -> pd.DataFrame:
+        # Get the table to retieved table entities
+        table_client = self.table_service_client.get_table_client(table_name)
+        # Get all entities in the table
+        entities = list(table_client.list_entities())
+        # Create a dataframe with the results
+        entities_df = pd.DataFrame(entities)
+        # Return the resulted dataframe
+        return entities_df
