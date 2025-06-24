@@ -870,6 +870,550 @@ def create_command_function(group_name, cmd_name, cmd_config):
                 return None
         return func
     
+    # Handle document list command
+    elif group_name == "document" and cmd_name == "list":
+        @pass_context
+        def func(ctx, subscription_id=None, resource_group=None):
+            """List Document Intelligence services."""
+            try:
+                ctx.log("Retrieving Document Intelligence services...", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get all resource groups or the specified one
+                if resource_group:
+                    resource_groups = [subscription.get_resource_group(resource_group)]
+                else:
+                    resource_groups = subscription.get_resource_groups()
+                
+                result = []
+                for rg in resource_groups:
+                    # Get Document Intelligence services in this resource group
+                    cognitive_services = rg.get_cognitive_services()
+                    for svc in cognitive_services:
+                        if svc.kind.lower() in ['formrecognizer', 'documentintelligence']:
+                            result.append({
+                                "name": svc.name,
+                                "resource_group": rg.get_name(),
+                                "location": svc.location,
+                                "kind": svc.kind,
+                                "sku": svc.sku_name,
+                                "endpoint": svc.endpoint
+                            })
+                
+                ctx.output(result, "Document Intelligence Services")
+                return result
+            except Exception as e:
+                ctx.log(f"Error listing Document Intelligence services: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document get command
+    elif group_name == "document" and cmd_name == "get":
+        @pass_context
+        def func(ctx, name, resource_group, subscription_id=None):
+            """Get details of a specific Document Intelligence service."""
+            try:
+                ctx.log(f"Getting Document Intelligence service: {name}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group
+                rg = subscription.get_resource_group(resource_group)
+                if not rg:
+                    ctx.log(f"Resource group '{resource_group}' not found", level="error")
+                    return None
+                
+                # Get Document Intelligence service
+                doc_service = rg.get_document_intelligence_service(name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{name}' not found in resource group '{resource_group}'", level="error")
+                    return None
+                
+                result = {
+                    "name": doc_service.get_name(),
+                    "id": doc_service.get_id(),
+                    "location": doc_service.get_location(),
+                    "kind": doc_service.get_kind(),
+                    "sku": doc_service.get_sku(),
+                    "endpoint": doc_service.get_endpoint(),
+                    "resource_group": resource_group
+                }
+                
+                ctx.output(result, f"Document Intelligence Service: {name}")
+                return result
+            except Exception as e:
+                ctx.log(f"Error getting Document Intelligence service details: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze command
+    elif group_name == "document" and cmd_name == "analyze":
+        @pass_context
+        def func(ctx, service_name, resource_group, model, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze a document using Document Intelligence."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing document with service: {service_name}, model: {model}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_document(model, document_path)
+                else:
+                    result = client.analyze_document_from_url(model, document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"Document Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing document: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-layout command
+    elif group_name == "document" and cmd_name == "analyze-layout":
+        @pass_context
+        def func(ctx, service_name, resource_group, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze document layout to extract text, tables, and structure."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing document layout with service: {service_name}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_layout(document_path)
+                else:
+                    result = client.analyze_layout_from_url(document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"Document Layout Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing document layout: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-receipt command
+    elif group_name == "document" and cmd_name == "analyze-receipt":
+        @pass_context
+        def func(ctx, service_name, resource_group, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze receipt to extract key information."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing receipt with service: {service_name}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_receipt(document_path)
+                else:
+                    result = client.analyze_document_from_url("prebuilt-receipt", document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"Receipt Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing receipt: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-invoice command
+    elif group_name == "document" and cmd_name == "analyze-invoice":
+        @pass_context
+        def func(ctx, service_name, resource_group, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze invoice to extract key information."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing invoice with service: {service_name}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_invoice(document_path)
+                else:
+                    result = client.analyze_document_from_url("prebuilt-invoice", document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"Invoice Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing invoice: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-id command
+    elif group_name == "document" and cmd_name == "analyze-id":
+        @pass_context
+        def func(ctx, service_name, resource_group, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze identity document to extract key information."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing ID document with service: {service_name}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_id_document(document_path)
+                else:
+                    result = client.analyze_document_from_url("prebuilt-idDocument", document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"ID Document Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing ID document: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-business-card command
+    elif group_name == "document" and cmd_name == "analyze-business-card":
+        @pass_context
+        def func(ctx, service_name, resource_group, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze business card to extract key information."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing business card with service: {service_name}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_business_card(document_path)
+                else:
+                    result = client.analyze_document_from_url("prebuilt-businessCard", document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"Business Card Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing business card: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-w2 command
+    elif group_name == "document" and cmd_name == "analyze-w2":
+        @pass_context
+        def func(ctx, service_name, resource_group, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze W-2 tax form to extract key information."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing W-2 with service: {service_name}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_w2(document_path)
+                else:
+                    result = client.analyze_document_from_url("prebuilt-tax.us.w2", document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"W-2 Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing W-2: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-custom command
+    elif group_name == "document" and cmd_name == "analyze-custom":
+        @pass_context
+        def func(ctx, service_name, resource_group, model_id, document_path=None, document_url=None, subscription_id=None, output_file=None):
+            """Analyze document using a custom trained model."""
+            try:
+                if not document_path and not document_url:
+                    ctx.log("Either --document-path or --document-url must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Analyzing document with custom model: {model_id}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client and analyze
+                client = doc_service.get_document_analysis_client()
+                
+                if document_path:
+                    result = client.analyze_custom_document(model_id, document_path)
+                else:
+                    result = client.analyze_custom_document_from_url(model_id, document_url)
+                
+                # Save to file if requested
+                if output_file:
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Results saved to {output_file}", level="success")
+                
+                ctx.output(result, f"Custom Model Analysis Results")
+                return result
+            except Exception as e:
+                ctx.log(f"Error analyzing with custom model: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
+    # Handle document analyze-batch command
+    elif group_name == "document" and cmd_name == "analyze-batch":
+        @pass_context
+        def func(ctx, service_name, resource_group, model, document_folder=None, document_list=None, subscription_id=None, output_folder=None):
+            """Analyze multiple documents in batch."""
+            try:
+                if not document_folder and not document_list:
+                    ctx.log("Either --document-folder or --document-list must be provided", level="error")
+                    return None
+                
+                ctx.log(f"Starting batch analysis with model: {model}", level="debug")
+                
+                # Use provided subscription or default
+                subscription = subscription_id and ctx.identity.get_subscription(subscription_id) or ctx.subscription
+                if not subscription:
+                    ctx.log("No subscription available", level="error")
+                    return None
+                
+                # Get resource group and service
+                rg = subscription.get_resource_group(resource_group)
+                doc_service = rg.get_document_intelligence_service(service_name)
+                if not doc_service:
+                    ctx.log(f"Document Intelligence service '{service_name}' not found", level="error")
+                    return None
+                
+                # Get client
+                client = doc_service.get_document_analysis_client()
+                
+                # Collect document paths
+                document_paths = []
+                if document_folder:
+                    import os
+                    for filename in os.listdir(document_folder):
+                        filepath = os.path.join(document_folder, filename)
+                        if os.path.isfile(filepath):
+                            document_paths.append(filepath)
+                elif document_list:
+                    with open(document_list, 'r') as f:
+                        document_paths = [line.strip() for line in f if line.strip()]
+                
+                # Analyze batch
+                results = client.analyze_batch_documents(model, document_paths)
+                
+                # Save to output folder if requested
+                if output_folder:
+                    import os
+                    import json
+                    os.makedirs(output_folder, exist_ok=True)
+                    for i, result in enumerate(results):
+                        output_file = os.path.join(output_folder, f"result_{i+1}.json")
+                        with open(output_file, 'w') as f:
+                            json.dump(result, f, indent=2, default=str)
+                    ctx.log(f"Batch results saved to {output_folder}", level="success")
+                
+                ctx.output(results, f"Batch Analysis Results ({len(results)} documents)")
+                return results
+            except Exception as e:
+                ctx.log(f"Error in batch analysis: {str(e)}", level="error")
+                import traceback
+                ctx.log(traceback.format_exc(), level="debug")
+                return None
+        return func
+    
     # Default handler for all other commands
     else:
         # Default fallback function for any unimplemented command
