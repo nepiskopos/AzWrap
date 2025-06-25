@@ -4422,24 +4422,59 @@ class Table:
         self.connection_string = storage_account.connection_string_description
         self.table_service_client = TableServiceClient.from_connection_string(conn_str=self.connection_string)
 
+
     def get_sa_tables(self) -> list:
+        """
+        Retrieve the list of table names in the associated storage account.
+
+        Returns:
+            list: A list of table names.
+        """
         tables = [table.name for table in self.table_service_client.list_tables()]
         return tables
-        
-    # Add the sa table create function
+
     def create_sa_table(self, table_name: str) -> TableClient:
+        """
+        Create a new table in the storage account if it does not already exist.
+
+        Args:
+            table_name (str): The name of the table to create.
+
+        Returns:
+            TableClient: A client to interact with the created or existing table.
+        """
         # Create table in the storage account if not exists
         table_client = self.table_service_client.create_table_if_not_exists(table_name)
         # Return the tableItemId
         return table_client
 
-    # Add the sa table delete function
-    def delete_sa_table(self,table_name: str) -> str:
+    def delete_sa_table(self, table_name: str) -> str:
+        """
+        Delete a specified table from the storage account.
+
+        Args:
+            table_name (str): The name of the table to delete.
+
+        Returns:
+            str: Confirmation message after deletion.
+        """
         # Delete a provided table
         self.table_service_client.delete_table(table_name)
-        return f"The table {table_name} succesfully deleted."
+        return f"The table {table_name} successfully deleted."
 
     def upload_entities_from_csv(self, csv_path: str, table_name: str, table_schema: list[str], delimeter: str = '|') -> str:
+        """
+        Upload entities from a CSV file into the specified Azure Table.
+
+        Args:
+            csv_path (str): Path to the CSV file.
+            table_name (str): Name of the table to upload entities to.
+            table_schema (list[str]): Schema (column names) for the table.
+            delimeter (str, optional): Delimiter used in the CSV file. Defaults to '|'.
+
+        Returns:
+            str: A log message indicating the result of the upload operation.
+        """
         # Get the table to populate with file entities
         table_client = self.table_service_client.get_table_client(table_name)
         # Reading the csv or txt to a pandas dataframe
@@ -4454,17 +4489,28 @@ class Table:
             except ResourceExistsError:
                 # Entity already exists, replace it
                 table_client.upsert_entity(entity=entity, mode='replace')
-                skipped_files +=1
-        
+                skipped_files += 1
+
         if skipped_files > 0:
-            response = f"Successfully uploaded {i+1 - skipped_files} entities and {skipped_files} replaced because they already exists in {table_name} table from the {csv_path}"
+            response = f"Successfully uploaded {i+1 - skipped_files} entities and {skipped_files} replaced because they already exist in {table_name} table from the {csv_path}"
         else:
             response = f"Successfully uploaded {i+1} entities in {table_name} table from the {csv_path}"
         # Returning a log message
         return response
 
-    # Add the delete entites to sa table function based csv
-    def delete_entities_from_csv(self, csv_path: str, table_name: str,  table_schema: list[str], delimeter: str = '|') -> str:
+    def delete_entities_from_csv(self, csv_path: str, table_name: str, table_schema: list[str], delimeter: str = '|') -> str:
+        """
+        Delete entities from a table using keys provided in a CSV file.
+
+        Args:
+            csv_path (str): Path to the CSV file.
+            table_name (str): Name of the table from which entities are to be deleted.
+            table_schema (list[str]): Schema of the table to match CSV.
+            delimeter (str, optional): Delimiter used in the CSV file. Defaults to '|'.
+
+        Returns:
+            str: A log message indicating how many entities were deleted.
+        """
         # Get the table to populate with file entities
         table_client = self.table_service_client.get_table_client(table_name)
         # Reading the csv or txt to a pandas dataframe
@@ -4473,11 +4519,20 @@ class Table:
         entities = raw_files_df.to_dict(orient='records')
         # Uploading all entries of the csv in table
         for i, entity in enumerate(entities):
-            table_client.delete_entity(partition_key = entity['PartitionKey'], row_key = entity['RowKey'])
+            table_client.delete_entity(partition_key=entity['PartitionKey'], row_key=entity['RowKey'])
         # Returning a log message
-        return f"Succesfully deleted {i+1} entities  in {table_name} from the {csv_path}"
+        return f"Successfully deleted {i+1} entities in {table_name} from the {csv_path}"
 
     def get_entities(self, table_name: str) -> pd.DataFrame:
+        """
+        Retrieve all entities from the specified Azure Table.
+
+        Args:
+            table_name (str): The name of the table to retrieve entities from.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing all entities in the table.
+        """
         # Get the table to retieved table entities
         table_client = self.table_service_client.get_table_client(table_name)
         # Get all entities in the table
