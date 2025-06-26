@@ -4972,7 +4972,6 @@ from azure.core.exceptions import ResourceExistsError
 
 class Table:
     storage_account: StorageAccount
-    container_client: TableServiceClient
 
     def __init__(self, storage_account: StorageAccount):
         self.storage_account = storage_account
