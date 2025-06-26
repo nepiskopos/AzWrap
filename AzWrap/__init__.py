@@ -30,7 +30,11 @@ from .wrapper import (
     
     # AI Services
     AIService,
-    OpenAIClient
+    OpenAIClient,
+    
+    # Document Intelligence
+    DocumentIntelligenceService,
+    DocumentIntelligenceClientWrapper
 )
 
 # CLI functionality
@@ -62,6 +66,10 @@ __all__ = [
     # AI Services
     "AIService",
     "OpenAIClient",
+    
+    # Document Intelligence
+    "DocumentIntelligenceService",
+    "DocumentIntelligenceClientWrapper",
     
     # CLI
     "cli_main"

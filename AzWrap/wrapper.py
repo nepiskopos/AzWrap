@@ -227,6 +227,37 @@ class ResourceGroup:
                 return AIService(self, cognitive_client=cognitive_client, azure_Account=account)
         return None
         
+    def get_document_intelligence_service(self, service_name:str) -> Optional["DocumentIntelligenceService"]:
+        """Get a Document Intelligence service by name.
+        
+        Args:
+            service_name: The name of the Document Intelligence service
+            
+        Returns:
+            DocumentIntelligenceService object if found, None otherwise
+        """
+        cognitive_client = self.subscription.get_cognitive_client()
+        cognitive_accounts = cognitive_client.accounts.list_by_resource_group(self.azure_resource_group.name)
+
+        accounts: List[azcsm.Account] = [account for account in cognitive_accounts]
+        
+        for account in accounts:
+            # Document Intelligence service kind can be "FormRecognizer" or "DocumentIntelligence"
+            if (account.kind.lower() in ["formrecognizer", "documentintelligence"]) and \
+               (account.name.lower() == service_name.lower()):
+                return DocumentIntelligenceService(self, cognitive_client=cognitive_client, azure_account=account)
+        return None
+    
+    def get_cognitive_services(self) -> List:
+        """Get all cognitive services in the resource group.
+        
+        Returns:
+            List of cognitive service Account objects
+        """
+        cognitive_client = self.subscription.get_cognitive_client()
+        cognitive_accounts = cognitive_client.accounts.list_by_resource_group(self.azure_resource_group.name)
+        return list(cognitive_accounts)
+        
 from azure.storage.blob import BlobServiceClient, ContainerProperties, ContainerClient, BlobProperties
 def validate_container_name(container_name: str) -> bool:
         # Validate container name
@@ -1317,6 +1348,9 @@ from io import BytesIO
 
 from openai import AzureOpenAI
 from langchain_openai import AzureChatOpenAI
+
+# Document Intelligence imports
+from azure.ai.formrecognizer import DocumentAnalysisClient
 class AIService:
     cognitive_client: CognitiveServicesManagementClient
     azure_account: azcsm.Account
@@ -1553,6 +1587,529 @@ class AIService:
         except Exception as e:
             print(f"Error updating deployment '{deployment_name}': {str(e)}")
             return {"error": str(e)}
+
+class DocumentIntelligenceService:
+    """Azure Document Intelligence service.
+    
+    Provides document analysis capabilities through the Document Intelligence API.
+    """
+    cognitive_client: CognitiveServicesManagementClient
+    azure_account: azcsm.Account
+    resource_group: ResourceGroup
+    name: str
+    location: str
+    endpoint: str
+    kind: str
+    sku: str
+    id: str
+    _credential: Optional[AzureKeyCredential]
+    
+    def __init__(self, 
+                 resource_group: ResourceGroup,
+                 cognitive_client: CognitiveServicesManagementClient,
+                 azure_account: azcsm.Account):
+        self.resource_group = resource_group
+        self.cognitive_client = cognitive_client
+        self.azure_account = azure_account
+        self.name = azure_account.name
+        self.location = azure_account.location
+        self.endpoint = f"https://{azure_account.name}.cognitiveservices.azure.com/"
+        self.kind = azure_account.kind
+        self.sku = azure_account.sku.name if hasattr(azure_account, 'sku') and hasattr(azure_account.sku, 'name') else "unknown"
+        self.id = azure_account.id
+        
+        # Initialize credential (lazy loading - will be set when get_credential is called)
+        self._credential = None
+        
+    def get_name(self) -> str:
+        """Get the name of the Document Intelligence service.
+        
+        Returns:
+            The name of the service
+        """
+        return self.name
+    
+    def get_id(self) -> str:
+        """Get the Azure resource ID of the Document Intelligence service.
+        
+        Returns:
+            The Azure resource ID
+        """
+        return self.id
+    
+    def get_location(self) -> str:
+        """Get the location of the Document Intelligence service.
+        
+        Returns:
+            The Azure region where the service is located
+        """
+        return self.location
+    
+    def get_kind(self) -> str:
+        """Get the kind of cognitive service.
+        
+        Returns:
+            The service kind (e.g., 'FormRecognizer' or 'DocumentIntelligence')
+        """
+        return self.kind
+        
+    def get_sku(self) -> str:
+        """Get the SKU of the Document Intelligence service.
+        
+        Returns:
+            The SKU name (e.g., 'S0', 'S1')
+        """
+        return self.sku
+        
+    def get_endpoint(self) -> str:
+        """Get the endpoint URL for the Document Intelligence service.
+        
+        Returns:
+            The service endpoint URL
+        """
+        return self.endpoint
+    
+    def get_keys(self) -> Dict[str, str]:
+        """Get the API keys for the Document Intelligence service.
+        
+        Returns:
+            Dictionary containing primary and secondary keys
+        """
+        keys = self.cognitive_client.accounts.list_keys(
+            self.resource_group.get_name(), 
+            self.azure_account.name
+        )
+        return {"primary": keys.key1, "secondary": keys.key2}
+    
+    def get_credential(self) -> AzureKeyCredential:
+        """Get an Azure credential for Document Intelligence.
+        
+        Returns:
+            AzureKeyCredential object for authenticating to the Document Intelligence service
+        """
+        # Use cached credential if available
+        if self._credential is None:
+            keys = self.cognitive_client.accounts.list_keys(self.resource_group.get_name(), self.azure_account.name)
+            self._credential = AzureKeyCredential(keys.key1)
+        return self._credential
+    
+    def get_document_analysis_client(self) -> "DocumentIntelligenceClientWrapper":
+        """Get a Document Analysis client for analyzing documents.
+        
+        Returns:
+            DocumentIntelligenceClientWrapper object for analyzing documents
+        """
+        client = DocumentAnalysisClient(
+            endpoint=self.endpoint,
+            credential=self.get_credential()
+        )
+        
+        return DocumentIntelligenceClientWrapper(self, client)
+
+
+class DocumentIntelligenceClientWrapper:
+    """Wrapper for Azure Document Intelligence client.
+    
+    Provides methods for analyzing documents using various models.
+    """
+    document_intelligence_service: DocumentIntelligenceService
+    client: DocumentAnalysisClient
+    
+    def __init__(self, document_intelligence_service: DocumentIntelligenceService, client: DocumentAnalysisClient):
+        self.document_intelligence_service = document_intelligence_service
+        self.client = client
+    
+    def get_service(self) -> DocumentIntelligenceService:
+        """Get the parent Document Intelligence service.
+        
+        Returns:
+            The parent DocumentIntelligenceService object
+        """
+        return self.document_intelligence_service
+        
+    def get_client(self) -> DocumentAnalysisClient:
+        """Get the underlying Document Analysis client.
+        
+        Returns:
+            The Azure DocumentAnalysisClient object
+        """
+        return self.client
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_document(self, model_id: str, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a document using a specified model.
+        
+        Args:
+            model_id: The model ID to use (e.g., "prebuilt-layout", "prebuilt-receipt", etc.)
+            document_path: Path to the document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the analysis results
+        """
+        try:
+            with open(document_path, "rb") as f:
+                poller = self.client.begin_analyze_document(model_id, document=f, **kwargs)
+                result = poller.result()
+                return self._serialize_result(result)
+        except Exception as e:
+            print(f"Error analyzing document: {str(e)}")
+            raise e
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_document_from_url(self, model_id: str, document_url: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a document from a URL using a specified model.
+        
+        Args:
+            model_id: The model ID to use (e.g., "prebuilt-layout", "prebuilt-receipt", etc.)
+            document_url: URL of the document to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the analysis results
+        """
+        try:
+            poller = self.client.begin_analyze_document_from_url(
+                model_id,
+                document_url,
+                **kwargs
+            )
+            result = poller.result()
+            return self._serialize_result(result)
+        except Exception as e:
+            print(f"Error analyzing document from URL: {str(e)}")
+            raise e
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_layout(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze the layout of a document to extract text, tables, and selection marks.
+        
+        Args:
+            document_path: Path to the document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the layout analysis results
+        """
+        return self.analyze_document("prebuilt-layout", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_layout_from_url(self, document_url: str, **kwargs) -> Dict[str, Any]:
+        """Analyze the layout of a document from URL to extract text, tables, and selection marks.
+        
+        Args:
+            document_url: URL of the document to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the layout analysis results
+        """
+        return self.analyze_document_from_url("prebuilt-layout", document_url, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_receipt(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a receipt to extract key information.
+        
+        Args:
+            document_path: Path to the receipt document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the receipt analysis results
+        """
+        return self.analyze_document("prebuilt-receipt", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_invoice(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze an invoice to extract key information.
+        
+        Args:
+            document_path: Path to the invoice document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the invoice analysis results
+        """
+        return self.analyze_document("prebuilt-invoice", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_id_document(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze an identity document to extract key information.
+        
+        Args:
+            document_path: Path to the ID document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the ID document analysis results
+        """
+        return self.analyze_document("prebuilt-idDocument", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_business_card(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a business card to extract key information.
+        
+        Args:
+            document_path: Path to the business card document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the business card analysis results
+        """
+        return self.analyze_document("prebuilt-businessCard", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_w2(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a W-2 tax form to extract key information.
+        
+        Args:
+            document_path: Path to the W-2 document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the W-2 analysis results
+        """
+        return self.analyze_document("prebuilt-tax.us.w2", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_1098(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a 1098 tax form to extract key information.
+        
+        Args:
+            document_path: Path to the 1098 document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the 1098 analysis results
+        """
+        return self.analyze_document("prebuilt-tax.us.1098", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_1099(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a 1099 tax form to extract key information.
+        
+        Args:
+            document_path: Path to the 1099 document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the 1099 analysis results
+        """
+        return self.analyze_document("prebuilt-tax.us.1099", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_health_insurance_card(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a health insurance card to extract key information.
+        
+        Args:
+            document_path: Path to the health insurance card file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the health insurance card analysis results
+        """
+        return self.analyze_document("prebuilt-healthInsuranceCard.us", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_marriage_certificate(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a marriage certificate to extract key information.
+        
+        Args:
+            document_path: Path to the marriage certificate file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the marriage certificate analysis results
+        """
+        return self.analyze_document("prebuilt-marriageCertificate.us", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_mortgage_document(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a mortgage document to extract key information.
+        
+        Args:
+            document_path: Path to the mortgage document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the mortgage document analysis results
+        """
+        return self.analyze_document("prebuilt-mortgage.us", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_pay_stub(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a pay stub to extract key information.
+        
+        Args:
+            document_path: Path to the pay stub file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the pay stub analysis results
+        """
+        return self.analyze_document("prebuilt-payStub.us", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_bank_check(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a bank check to extract key information.
+        
+        Args:
+            document_path: Path to the bank check file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the bank check analysis results
+        """
+        return self.analyze_document("prebuilt-check.us", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_vaccination_card(self, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a vaccination card to extract key information.
+        
+        Args:
+            document_path: Path to the vaccination card file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the vaccination card analysis results
+        """
+        return self.analyze_document("prebuilt-vaccinationCard", document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_custom_document(self, custom_model_id: str, document_path: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a document using a custom trained model.
+        
+        Args:
+            custom_model_id: The ID of the custom model to use
+            document_path: Path to the document file to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the custom document analysis results
+        """
+        return self.analyze_document(custom_model_id, document_path, **kwargs)
+    
+    @retry(wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    def analyze_custom_document_from_url(self, custom_model_id: str, document_url: str, **kwargs) -> Dict[str, Any]:
+        """Analyze a document from URL using a custom trained model.
+        
+        Args:
+            custom_model_id: The ID of the custom model to use
+            document_url: URL of the document to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            Dictionary containing the custom document analysis results
+        """
+        return self.analyze_document_from_url(custom_model_id, document_url, **kwargs)
+    
+    def analyze_batch_documents(self, model_id: str, document_paths: List[str], **kwargs) -> List[Dict[str, Any]]:
+        """Analyze multiple documents in batch using the specified model.
+        
+        Args:
+            model_id: The model ID to use for all documents
+            document_paths: List of paths to document files to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            List of dictionaries containing analysis results for each document
+        """
+        results = []
+        for path in document_paths:
+            try:
+                result = self.analyze_document(model_id, path, **kwargs)
+                results.append({"document_path": path, "status": "success", "result": result})
+            except Exception as e:
+                results.append({"document_path": path, "status": "error", "error": str(e)})
+        return results
+    
+    def analyze_batch_documents_from_urls(self, model_id: str, document_urls: List[str], **kwargs) -> List[Dict[str, Any]]:
+        """Analyze multiple documents from URLs in batch using the specified model.
+        
+        Args:
+            model_id: The model ID to use for all documents
+            document_urls: List of URLs of documents to analyze
+            **kwargs: Additional parameters to pass to the analyze_document method
+            
+        Returns:
+            List of dictionaries containing analysis results for each document
+        """
+        results = []
+        for url in document_urls:
+            try:
+                result = self.analyze_document_from_url(model_id, url, **kwargs)
+                results.append({"document_url": url, "status": "success", "result": result})
+            except Exception as e:
+                results.append({"document_url": url, "status": "error", "error": str(e)})
+        return results
+    
+    def _serialize_result(self, result) -> Dict[str, Any]:
+        """Convert the document analysis result to a serializable dictionary.
+        
+        Args:
+            result: The analysis result to convert
+            
+        Returns:
+            Dictionary representation of the analysis result
+        """
+        # This is a simplified serialization - you may need to expand this based on result type
+        serialized = {
+            "content": result.content,
+            "pages": []
+        }
+        
+        # Add page information
+        if hasattr(result, "pages"):
+            for page in result.pages:
+                page_dict = {
+                    "page_number": page.page_number,
+                    "lines": [],
+                    "tables": []
+                }
+                
+                # Add text lines
+                if hasattr(page, "lines"):
+                    for line in page.lines:
+                        page_dict["lines"].append({
+                            "content": line.content,
+                            "bounding_box": line.polygon if hasattr(line, "polygon") else None
+                        })
+                
+                # Add tables
+                if hasattr(result, "tables"):
+                    for table in result.tables:
+                        if table.bounding_regions and table.bounding_regions[0].page_number == page.page_number:
+                            table_dict = {
+                                "row_count": table.row_count,
+                                "column_count": table.column_count,
+                                "cells": []
+                            }
+                            
+                            # Add table cells
+                            for cell in table.cells:
+                                table_dict["cells"].append({
+                                    "row_index": cell.row_index,
+                                    "column_index": cell.column_index,
+                                    "content": cell.content,
+                                    "kind": cell.kind
+                                })
+                            
+                            page_dict["tables"].append(table_dict)
+                
+                serialized["pages"].append(page_dict)
+        
+        # Add document type specific information
+        if hasattr(result, "key_value_pairs") and result.key_value_pairs:
+            serialized["key_value_pairs"] = []
+            for kv in result.key_value_pairs:
+                if kv.key and kv.value:
+                    serialized["key_value_pairs"].append({
+                        "key": kv.key.content,
+                        "value": kv.value.content
+                    })
+        
+        return serialized
+
 
 class OpenAIClient:
     ai_service: AIService 
