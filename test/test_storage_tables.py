@@ -52,7 +52,7 @@ def test_storage_table_operations():
     print(f"Got storage tables client successfully")
 
     # Create a new table in Table Storage 
-    table_name = "test_table"
+    table_name = "TestTable"
     table = tables_client.create_sa_table(table_name)
     assert table is not None
     print(f"Successfully created table with table name: {table_name}")

@@ -32,7 +32,7 @@ pip install azwrap
 ### Getting a Table Storage Service
 
 ```python
-from azwrap import Identity, Subscription, ResourceGroup, DocumentIntelligenceService
+from azwrap import Identity, Subscription, ResourceGroup, StorageAccount, Table
 
 # Create an identity with your Azure credentials
 identity = Identity(tenant_id, client_id, client_secret)
