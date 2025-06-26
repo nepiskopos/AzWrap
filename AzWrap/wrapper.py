@@ -5026,7 +5026,7 @@ class Table:
         Args:
             csv_path (str): Path to the CSV file.
             table_name (str): Name of the table to upload entities to.
-            table_schema (list[str]): Schema (column names) for the table.
+            table_schema (list[str]): Schema (list of column names) for the table.
             delimeter (str, optional): Delimiter used in the CSV file. Defaults to '|'.
 
         Returns:
@@ -5062,7 +5062,7 @@ class Table:
         Args:
             csv_path (str): Path to the CSV file.
             table_name (str): Name of the table from which entities are to be deleted.
-            table_schema (list[str]): Schema of the table to match CSV.
+            table_schema (list[str]): Schema of the table (list of column names) to match CSV.
             delimeter (str, optional): Delimiter used in the CSV file. Defaults to '|'.
 
         Returns:
