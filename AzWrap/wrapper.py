@@ -1350,7 +1350,7 @@ from openai import AzureOpenAI
 from langchain_openai import AzureChatOpenAI
 
 # Document Intelligence imports
-from azure.ai.formrecognizer import DocumentAnalysisClient
+from azure.ai.formrecognizer import DocumentAnalysisClient, DocumentModelAdministrationClient
 class AIService:
     cognitive_client: CognitiveServicesManagementClient
     azure_account: azcsm.Account
@@ -1705,6 +1705,20 @@ class DocumentIntelligenceService:
         )
         
         return DocumentIntelligenceClientWrapper(self, client)
+    
+    def get_document_models_client(self) -> "DocumentIntelligenceModels":
+        """Get a Document Analysis client for analyzing documents.
+        
+        Returns:
+            DocumentIntelligenceClientWrapper object for analyzing documents
+        """
+
+        client = DocumentModelAdministrationClient( 
+            endpoint=self.endpoint,
+            credential=self.get_credential()
+        )
+        
+        return DocumentIntelligenceModels(self, client)
 
 
 class DocumentIntelligenceClientWrapper:
@@ -2109,6 +2123,85 @@ class DocumentIntelligenceClientWrapper:
                     })
         
         return serialized
+
+
+class DocumentIntelligenceModels:
+    """Model class for Azure Document Intelligence client.
+    
+    Provides methods for creating, training and deleting custom extraction models.
+    """
+    document_intelligence_service: DocumentIntelligenceService
+    client: DocumentModelAdministrationClient
+    
+    def __init__(self, document_intelligence_service: DocumentIntelligenceService, client: DocumentModelAdministrationClient):
+        self.document_intelligence_service = document_intelligence_service
+        self.client = client
+
+    def get_document_models(self) -> list:
+        """
+        List all custom document model IDs in the Azure Document Intelligence resource.
+
+        Returns:
+            list: A list of custom model IDs.
+        """
+        # Find the custom model ids
+        custom_model_ids = [custom_model.model_id for custom_model in self.client.list_document_models()]
+        return custom_model_ids
+    
+    def get_document_model_details(self, model_id) -> dict:
+        """
+        Retrieve details of a specific document model by its ID.
+
+        Args:
+            model_id (str): The unique identifier of the document model.
+
+        Returns:
+            dict: A dictionary containing details about the specified model.
+        """
+        # Get the model details
+        model_details = self.client.get_document_model(model_id=model_id)
+        return model_details.to_dict()
+    
+    def delete_model(self, model_id) -> str:
+        """
+        Delete a custom document model from the Azure Form Recognizer resource.
+
+        Args:
+            model_id (str): The ID of the model to delete.
+
+        Returns:
+            str: Confirmation message after deletion.
+        """
+        # Delete an extraction document model based on model_id
+        self.client.delete_document_model(model_id=model_id)
+        return f"Succesfully deleted the custom model {model_id}."
+    
+    def create_document_model(self, model_id: str, build_mode: str, blob_container_url: str, folder_path: str = None, description: str = None) -> dict:
+        """
+        Create and train a new custom document model using labeled or unlabeled training data.
+
+        Args:
+            model_id (str): Unique ID to assign to the custom model.
+            build_mode (str): Training mode, such as 'template' or 'neural'.
+            blob_container_url (str): URL to the Azure Blob Storage container containing the training data (pdf, pdf.labels.json, pdf.ocr.json per document).
+            folder_path (str, optional): Subfolder path in the container with the training data. Defaults to None.
+            description (str, optional): Optional description for the model. Defaults to None.
+
+        Returns:
+            dict: Dictionary containing details about the newly created model.
+        """
+        # Verify folder path format
+        if folder_path and not folder_path.startswith('/'):
+            folder_path = "/" + folder_path
+        # Create and train a custom model 
+        poller = self.client.begin_build_document_model(
+            blob_container_url= blob_container_url,
+            prefix= folder_path,
+            build_mode= build_mode,
+            model_id=model_id,
+            description=description
+            )
+        return poller.result().to_dict()
 
 
 class OpenAIClient:
