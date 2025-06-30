@@ -6,7 +6,7 @@ This document describes the Document Intelligence capability in the AzWrap libra
 
 Azure Document Intelligence (formerly Form Recognizer) is an AI service that applies machine learning to extract text, key-value pairs, tables, and structure from documents. The AzWrap integration uses the Azure Form Recognizer SDK (`azure-ai-formrecognizer`) and follows the same hierarchical approach used for other Azure services in the library:
 
-Identity → Subscription → ResourceGroup → DocumentIntelligenceService → DocumentIntelligenceClientWrapper
+Identity → Subscription → ResourceGroup → DocumentIntelligenceService → DocumentIntelligenceClientWrapper OR DocumentIntelligenceModels
 
 **Note**: This implementation uses the Azure Form Recognizer SDK which supports both legacy Form Recognizer services and newer Document Intelligence services deployed with the "FormRecognizer" kind.
 
@@ -48,6 +48,31 @@ resource_group = subscription.get_resource_group(group_name)
 
 # Get a Document Intelligence service
 doc_intelligence = resource_group.get_document_intelligence_service(service_name)
+```
+
+### Working with Document Models Administrator Client
+
+```python
+# Get a client for managing document models
+models_client = doc_intelligence.get_document_models_client()
+
+# List all document model IDs in the current Document Intelligence resource
+model_ids = models_client.get_document_models()
+
+# Retrieve metadata and details about a specific model by its ID
+details = models_client.get_document_model_details("model-id")
+
+# Create and train a custom document model using training data in an Azure Blob Storage container.
+model = models_client.create_document_model(
+    model_id="my-model",
+    build_mode="template",
+    blob_container_url="https://<account>.blob.core.windows.net/<container>",
+    folder_path="invoices/training",
+    description="Invoice processing model"
+)
+
+# Delete a specific custom document model from the Azure resource.
+models_client.delete_model("my-model")
 ```
 
 ### Working with Document Analysis Client
@@ -142,6 +167,25 @@ The `DocumentIntelligenceService` class provides access to a Document Intelligen
 - `get_keys()`: Returns a dictionary with primary and secondary keys
 - `get_credential()`: Returns an `AzureKeyCredential` for authentication
 - `get_document_analysis_client()`: Returns a client for document analysis
+- `get_document_models_client()`: Returns a client for document model management
+
+
+## DocumentIntelligenceModels Class
+
+The `DocumentIntelligenceModels` class provides an interface for managing custom document models in the Azure Document Intelligence service. It wraps the Azure SDK's `DocumentModelAdministrationClient` and is accessible from the `DocumentIntelligenceService` class.
+
+### Properties
+
+- `document_intelligence_service`: Reference to the parent `DocumentIntelligenceService` instance
+- `client`: The underlying `DocumentModelAdministrationClient` used for model operations
+
+### Methods
+
+- `get_document_models()`: Returns a list of all custom model IDs in the Azure resource
+- `get_document_model_details()`: Retrieves detailed metadata for a specified model
+- `create_document_model()`: Creates and trains a new custom model from labeled documents in Azure Blob Storage
+- `delete_model()`: Deletes a custom model by its ID
+
 
 ## DocumentIntelligenceClientWrapper Class
 
