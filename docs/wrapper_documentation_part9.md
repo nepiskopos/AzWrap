@@ -71,6 +71,9 @@ model = models_client.create_document_model(
     description="Invoice processing model"
 )
 
+# Copy custom document model to another document intelligence resource.
+copied_model_details = models_client.copy_document_model(model_id="my-model", target_endpoint=target_endpoint, target_key=target_key)
+
 # Delete a specific custom document model from the Azure resource.
 models_client.delete_model("my-model")
 ```
@@ -185,6 +188,7 @@ The `DocumentIntelligenceModels` class provides an interface for managing custom
 - `get_document_model_details()`: Retrieves detailed metadata for a specified model
 - `create_document_model()`: Creates and trains a new custom model from labeled documents in Azure Blob Storage
 - `delete_model()`: Deletes a custom model by its ID
+- `copy_document_model()`: Copies a custom model to a target resource
 
 
 ## DocumentIntelligenceClientWrapper Class

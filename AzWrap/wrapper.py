@@ -2203,6 +2203,41 @@ class DocumentIntelligenceModels:
             )
         return poller.result().to_dict()
 
+    def copy_document_model(self, model_id: str, target_endpoint: str, target_key: str) -> dict:
+        """
+        Copy a document model from the current Azure Document Intelligence resource to a target resource.
+        
+        Args:
+            model_id (str): The ID of the model to be copied.
+            target_endpoint (str): The endpoint URL of the target Azure Form Recognizer resource.
+            target_key (str): The API key for the target resource to authenticate the copy operation.
+
+        Returns:
+            dict: A dictionary containing the details of the newly created model in the target resource.
+        """
+        # Initialize default model description to be copied
+        model_description = f"The model {model_id} has been copied from the resource {self.document_intelligence_service.get_name()}."
+        # Get description for model to copy to target source
+        model_details = self.get_document_model_details(model_id)
+        if "description" in model_details.keys():
+            model_description = model_details["description"]
+
+        # Create the documemt admin for target subscription
+        target_client = DocumentModelAdministrationClient(
+            endpoint=target_endpoint, credential=AzureKeyCredential(target_key)
+        )
+        # Get authorization to copy model to target client
+        target = target_client.get_copy_authorization(
+            model_id= model_id,
+            description= model_description
+        )
+        # Perform the copy of the file
+        poller = self.client.begin_copy_document_model_to(
+            model_id=model_id,
+            target=target,
+        )
+        return poller.result().to_dict()
+
 
 class OpenAIClient:
     ai_service: AIService 
