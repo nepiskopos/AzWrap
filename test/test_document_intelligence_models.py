@@ -44,17 +44,32 @@ def test_real_document_intelligence_model_administrator():
     print(f"Service endpoint: {doc_service.get_endpoint()}")
     
     # Get Document Analysis client (using Form Recognizer API)
-    client = doc_service.get_document_models_client()
-    assert client is not None
+    fr_client = doc_service.get_formrecognizer_models_client()
+    assert fr_client is not None
     print("Got Document Model Administrator client successfully")
     
     # Get a list of all available models
-    model_ids = client.get_document_models()
+    model_ids = fr_client.get_document_models()
     assert model_ids is not None
     print(f"Got all available Document Intelligence models: {len(model_ids)}")
 
     # Get the details of a model
-    model_details = client.get_document_model_details(model_id=model_ids[0])
+    model_details = fr_client.get_document_model_details(model_id=model_ids[0])
+    assert model_details is not None
+    print(f"Got succesfully the document intelligence model details for the first model")
+
+    # Get Document Analysis client (using Document Intelligence API)
+    di_client = doc_service.get_document_intelligence_models_client()
+    assert di_client is not None
+    print("Got Document Model Administrator client successfully")
+    
+    # Get a list of all available models
+    model_ids = di_client.get_document_models()
+    assert model_ids is not None
+    print(f"Got all available Document Intelligence models: {len(model_ids)}")
+
+    # Get the details of a model
+    model_details = di_client.get_document_model_details(model_id=model_ids[0])
     assert model_details is not None
     print(f"Got succesfully the document intelligence model details for the first model")
     

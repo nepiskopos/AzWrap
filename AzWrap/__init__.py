@@ -35,7 +35,9 @@ from .wrapper import (
     # Document Intelligence
     DocumentIntelligenceService,
     DocumentIntelligenceClientWrapper,
-    DocumentIntelligenceModels
+    DocumentIntelligenceModels,
+    DocumentAnalysisClientWrapper,
+    FormRecognizerModels
 )
 
 # CLI functionality
@@ -72,6 +74,8 @@ __all__ = [
     "DocumentIntelligenceService",
     "DocumentIntelligenceClientWrapper",
     "DocumentIntelligenceModels",
+    "DocumentAnalysisClientWrapper",
+    "FormRecognizerModels",
     
     # CLI
     "cli_main"
