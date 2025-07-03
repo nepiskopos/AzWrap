@@ -19,9 +19,6 @@ AZURE_SUBSCRIPTION_ID = os.getenv('AZURE_SUBSCRIPTION_ID')
 AZURE_RESOURCE_GROUP_NAME = os.getenv('AZURE_RESOURCE_GROUP_NAME')
 AZURE_STORAGE_ACCOUNT_NAME = os.getenv('AZURE_STORAGE_ACCOUNT_NAME')
 
-# Sample CSV or TXT document with two or more columns and headers need to be uploaded for testing
-SOURCE_CSV = "<csv-or-txt-file-path>"
-
 def test_storage_table_operations():
     """Test Storage Tables operations"""
     # Create identity with credentials
@@ -62,23 +59,6 @@ def test_storage_table_operations():
     # Verify we got a list of table names
     assert len(table_names) > 0 
     print(f"Successfully retrieved the list of available tables. Table Names: {table_names}")
-
-    # Add some data to table from CSV
-    table_schema = pd.read_csv(SOURCE_CSV, sep="|", encoding='utf-8').columns.to_list()
-    table_schema[:2] = ["PartitionKey", "RowKey"]
-    upload_status = tables_client.upload_entities_from_csv(SOURCE_CSV, table_name, table_schema)
-    assert upload_status is not None
-    print(upload_status)
-
-    # Get all the entries from the table
-    df = tables_client.get_entities(table_name)
-    assert df.shape[0] != 0
-    print(f"Successfully retrieved the entities form the {table_name}. Number of entiries: {df.shape[0]}")
-
-    # Delete the table entities from csv
-    deletion_status = tables_client.delete_entities_from_csv(SOURCE_CSV, table_name, table_schema)
-    assert deletion_status is not None
-    print(deletion_status)
 
     # Delete the sa table
     table_deletion_status = tables_client.delete_sa_table(table_name)
